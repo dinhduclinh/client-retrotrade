@@ -1,0 +1,41 @@
+// Danh sách 34 đơn vị hành chính cấp tỉnh/thành phố trực thuộc Trung ương
+export const vietnamProvinces = [
+  // 6 Thành phố trực thuộc Trung ương
+  "Hà Nội",
+  "TP. Hồ Chí Minh",
+  "Hải Phòng",
+  "Đà Nẵng",
+  "Huế",
+  "Cần Thơ",
+  // 28 Tỉnh
+  "Tuyên Quang",
+  "Lào Cai",
+  "Thái Nguyên",
+  "Phú Thọ",
+  "Bắc Ninh",
+  "Hưng Yên",
+  "Ninh Bình",
+  "Quảng Trị",
+  "Quảng Ngãi",
+  "Gia Lai",
+  "Khánh Hòa",
+  "Lâm Đồng",
+  "Đắk Lắk",
+  "Đồng Nai",
+  "Tây Ninh",
+  "Đồng Tháp",
+  "Vĩnh Long",
+  "An Giang",
+  "Cà Mau",
+  // Các tỉnh giữ nguyên
+  "Cao Bằng",
+  "Lai Châu",
+  "Điện Biên",
+  "Lạng Sơn",
+  "Sơn La",
+  "Quảng Ninh",
+  "Thanh Hóa",
+  "Nghệ An",
+  "Hà Tĩnh",
+];
+
