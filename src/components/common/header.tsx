@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { Button } from "@/components/ui/common/button";
@@ -36,41 +36,40 @@ import {
   AvatarImage,
 } from "@/components/ui/common/avatar";
 import { useDispatch, useSelector } from "react-redux";
+import { RootState, AppDispatch } from "@/store/redux_store";
 import { logout, toggleDarkMode } from "@/store/auth/authReducer";
 import { fetchCartItemCount } from "@/store/cart/cartActions";
 import { jwtDecode } from "jwt-decode";
+import { decodeToken, type DecodedToken } from "@/utils/jwtHelper";
 import { toast } from "sonner";
 import Image from "next/image";
-
-// Inline type cho DecodedToken dựa trên schema Users (MongoDB User.model.js: UserGuid, Email, RoleId mapped to role, AvatarUrl)
-type DecodedToken = {
-  email: string;
-  role: string; // 'renter', 'owner', 'admin', 'moderator' từ Roles table
-  avatarUrl?: string;
-  // Có thể thêm UserGuid, FullName nếu JWT payload có
-};
 
 export function Header() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userInfo, setUserInfo] = useState<DecodedToken | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const router = useRouter();
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
 
-  const { accessToken, isDarkMode } = useSelector((state: any) => state.auth);
-  const { count: cartCount } = useSelector((state: any) => state.cart);
+  const { accessToken, isDarkMode } = useSelector(
+    (state: RootState) => state.auth
+  );
+  const { count: cartCount } = useSelector((state: RootState) => state.cart);
 
-  // Fix: useMemo clean, no duplicate return, type-safe với jwtDecode
-  const decodedUser = useMemo(() => {
-    if (typeof accessToken !== "string" || !accessToken.trim()) {
-      return null;
+  // Decode JWT token để lấy thông tin user
+  const decodedUser = React.useMemo(() => {
+    if (typeof accessToken === "string" && accessToken.trim()) {
+      try {
+        const decoded = jwtDecode<DecodedToken>(accessToken);
+        return decoded;
+      } catch (error) {
+        console.error("Invalid token:", error);
+        return null;
+      }
     }
-    try {
-      return jwtDecode<DecodedToken>(accessToken);
-    } catch (error) {
-      console.error("Invalid token:", error);
-      return null;
-    }
+    return null;
+
+    return decodeToken(accessToken);
   }, [accessToken]);
 
   useEffect(() => {
@@ -78,11 +77,13 @@ export function Header() {
       setIsLoggedIn(true);
       setUserInfo(decodedUser);
 
-      // Fetch cart count when user is logged in (liên kết với CartItems model)
-      dispatch(fetchCartItemCount());
+      // Fetch cart count when user is logged in
+      fetchCartItemCount()(dispatch);
+      // Chuyển hướng dựa trên role
+      const currentPath = router.pathname;
 
-      // Chuyển hướng dựa trên role (chỉ client-side để tránh hydration mismatch trên Vercel)
-      if (typeof window !== "undefined" && router.pathname === "/") {
+      // Redirect logic dựa trên role
+      if (currentPath === "/") {
         router.push("/home");
       }
     } else {
@@ -94,7 +95,7 @@ export function Header() {
       setIsLoggedIn(false);
       setUserInfo(null);
     }
-  }, [decodedUser, accessToken, dispatch, router.pathname]);
+  }, [decodedUser, accessToken, dispatch, router]);
 
   // Apply dark mode to document
   useEffect(() => {
@@ -155,7 +156,7 @@ export function Header() {
     router.push("/products/myfavorite");
   };
 
-  // Render menu items dựa trên role (từ Users.RoleId mapped to Roles.RoleName)
+  // Render menu items dựa trên role
   const renderRoleSpecificMenuItems = () => {
     if (!userInfo?.role) return null;
 
@@ -223,7 +224,6 @@ export function Header() {
                 alt="Retro Trade Logo"
                 width={60}
                 height={60}
-                priority // Optimize cho Vercel LCP
                 className="rounded-lg relative z-10 transform group-hover:scale-110 group-hover:rotate-3 transition-all duration-300"
               />
               <Sparkles className="absolute -top-1 -right-1 w-4 h-4 text-yellow-500 opacity-0 group-hover:opacity-100 group-hover:animate-pulse transition-opacity duration-300" />
