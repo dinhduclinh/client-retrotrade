@@ -1,7 +1,7 @@
 import { store } from '../store/redux_store';
 import { logout, login } from '../store/auth/authReducer';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:9999/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://retrotrade.onrender.com/api/v1';
 
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: (token: string) => void; reject: (error: Error) => void }> = [];
