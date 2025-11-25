@@ -81,7 +81,6 @@ export function Header() {
       fetchCartItemCount()(dispatch);
       // Chuyển hướng dựa trên role
       const currentPath = router.pathname;
-
       // Redirect logic dựa trên role
       if (currentPath === "/") {
         router.push("/home");
@@ -132,10 +131,7 @@ export function Header() {
   };
 
   const handleGoToMyOrders = () => {
-    if (
-      router.pathname !== "/auth/my-orders" &&
-      router.asPath !== "/auth/my-orders"
-    ) {
+    if (router.pathname !== "/auth/my-orders" && router.asPath !== "/auth/my-orders") {
       router.push("/auth/my-orders");
     }
   };
@@ -399,6 +395,7 @@ export function Header() {
                     <span>Danh sách yêu thích</span>
                   </DropdownMenuItem>
 
+
                   <DropdownMenuItem
                     className="cursor-pointer group"
                     onClick={handleGoToMyOrders}
@@ -407,8 +404,10 @@ export function Header() {
                     <span>Lịch sử đơn hàng</span>
                   </DropdownMenuItem>
 
-                  {(userInfo?.role === "renter" ||
-                    userInfo?.role === "owner") && (
+                 
+                 
+                  {(userInfo?.role === "renter" || userInfo?.role === "owner") && (
+
                     <DropdownMenuItem
                       className="cursor-pointer group"
                       onClick={() => router.push("/wallet")}

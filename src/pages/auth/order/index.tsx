@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
-import { useDispatch, useSelector } from "react-redux";
+import { useSelector } from "react-redux";
 import { useRouter } from "next/router";
 import { createOrderAction } from "@/store/order/orderActions";
 import {
@@ -10,7 +10,7 @@ import {
   fetchCartItems,
 } from "@/store/cart/cartActions";
 import type { CartItem } from "@/services/auth/cartItem.api";
-import { RootState, AppDispatch } from "@/store/redux_store";
+import { RootState } from "@/store/redux_store";
 import { decodeToken } from "@/utils/jwtHelper";
 import { getUserProfile } from "@/services/auth/user.api";
 import {
@@ -45,9 +45,10 @@ import { toast } from "sonner";
 import { type UserAddress } from "@/services/auth/userAddress.api";
 import { payOrderWithWallet } from "@/services/wallet/wallet.api";
 import PopupModal from "@/components/ui/common/PopupModal";
-
+import { useAppDispatch } from "@/store/hooks";
 import { AddressSelector } from "@/components/ui/auth/address/address-selector";
 import RentalDatePicker from "@/components/ui/common/RentalDatePicker";
+import { CheckoutPhoneInput, validateVietnamesePhone } from "@/components/ui/auth/checkout-phone-input";
 
 const calculateRentalDays = (item: CartItem): number => {
   if (!item.rentalStartDate || !item.rentalEndDate) return 0;
@@ -93,7 +94,7 @@ type ApiError = {
 };
 
 export default function Checkout() {
-  const dispatch = useDispatch<AppDispatch>();
+  const dispatch = useAppDispatch(); 
   const router = useRouter();
   const accessToken = useSelector((state: RootState) => state.auth.accessToken);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -138,7 +139,6 @@ export default function Checkout() {
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(
     null
   );
-  const [useDefaultPhone, setUseDefaultPhone] = useState(true);
   const [defaultPhone, setDefaultPhone] = useState<string>("");
   const [confirmPopup, setConfirmPopup] = useState<{
     isOpen: boolean;
@@ -168,6 +168,7 @@ export default function Checkout() {
   const [discountListError, setDiscountListError] = useState<string | null>(
     null
   );
+  const [paymentOption, setPaymentOption] = useState<"pay_now" | "pay_later">("pay_now"); //Option payment
 
   // Lấy từ sessionStorage
 useEffect(() => {
@@ -251,6 +252,7 @@ useEffect(() => {
     setSelectedItemIds(items.map((item) => item._id));
     setHasInitializedSelection(true);
   } catch (err) {
+    console.error("Error parsing checkout items from sessionStorage:", err);
     toast.error("Dữ liệu giỏ hàng bị lỗi", {
       description: "Đang làm mới giỏ hàng...",
     });
@@ -301,21 +303,6 @@ useEffect(() => {
     }
   }, [selectedAddressId, shipping.fullName, accessToken]);
 
-  // Update phone when useDefaultPhone changes
-  useEffect(() => {
-    if (useDefaultPhone && defaultPhone) {
-      setShipping((prev) => ({
-        ...prev,
-        phone: defaultPhone,
-      }));
-    } else if (!useDefaultPhone) {
-      // Clear phone when switching to custom input
-      setShipping((prev) => ({
-        ...prev,
-        phone: "",
-      }));
-    }
-  }, [useDefaultPhone, defaultPhone]);
 
   useEffect(() => {
     const loadUserInfo = async () => {
@@ -335,13 +322,6 @@ useEffect(() => {
           const phone =
             profileResponse.user?.phone || profileResponse.data?.phone || "";
           setDefaultPhone(phone);
-          // Only set to shipping if useDefaultPhone is true
-          if (useDefaultPhone) {
-            setShipping((prev) => ({
-              ...prev,
-              phone: phone,
-            }));
-          }
         }
       } catch (error) {
         console.error("Error loading user info:", error);
@@ -351,7 +331,7 @@ useEffect(() => {
     if (accessToken) {
       loadUserInfo();
     }
-  }, [accessToken, useDefaultPhone]);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!hasInitializedSelection) return;
@@ -368,8 +348,12 @@ useEffect(() => {
     try {
       const response = await listAvailableDiscounts(1, 50);
       if (response.status === "success" && response.data) {
-        // Hiển thị tất cả discount active - logic validate sẽ kiểm tra thời gian khi áp dụng
-        setAvailableDiscounts(response.data);
+        // Gộp cả public và special discounts vào một mảng
+        const allDiscounts = [
+          ...(response.data.public || []),
+          ...(response.data.special || []),
+        ];
+        setAvailableDiscounts(allDiscounts);
       } else {
         setDiscountListError(
           response.message || "Không thể tải danh sách mã giảm giá."
@@ -484,6 +468,7 @@ useEffect(() => {
     }
   };
 
+
   const handleToggleItemSelection = (itemId: string) => {
     setSelectedItemIds((prev) =>
       prev.includes(itemId)
@@ -539,22 +524,11 @@ useEffect(() => {
       let baseAmountForDiscount = rentalTotal;
       let isPrivateDiscountWithPublic = false;
 
-      console.log("Validating discount:", {
-        code: codeToApply.toUpperCase(),
-        baseAmount: baseAmountForDiscount,
-        rentalTotal,
-        depositTotal,
-        publicDiscountAmount,
-        selectedItemsCount: selectedCartItems.length,
-      });
-
       // Validate lần đầu để kiểm tra mã có hợp lệ không
       const response = await validateDiscount({
         code: codeToApply.toUpperCase(),
         baseAmount: baseAmountForDiscount,
       });
-
-      console.log("Validation response:", response);
 
       if (response.status === "success" && response.data) {
         const discount = response.data.discount;
@@ -567,14 +541,6 @@ useEffect(() => {
             0,
             rentalTotal - publicDiscountAmount
           );
-          console.log(
-            "Private discount with public discount exists, revalidating with remaining rental:",
-            {
-              originalRental: rentalTotal,
-              publicDiscountAmount,
-              remainingRental: baseAmountForDiscount,
-            }
-          );
         }
 
         // Tính lại discount amount để đảm bảo chính xác
@@ -584,36 +550,7 @@ useEffect(() => {
           baseAmountForDiscount,
           discount.maxDiscountAmount
         );
-
-        // Sử dụng amount từ backend, nhưng log để debug
-        console.log("Discount calculation:", {
-          code: discount.code,
-          type: discount.type,
-          value: discount.value,
-          baseAmount: baseAmountForDiscount,
-          maxDiscountAmount: discount.maxDiscountAmount || 0,
-          backendAmount: amount,
-          calculatedAmount: calculatedAmount,
-          match: Math.abs(amount - calculatedAmount) < 0.01,
-        });
-
-        console.log("Applying discount:", {
-          code: discount.code,
-          isPublic: discount.isPublic,
-          type: discount.type,
-          value: discount.value,
-          maxDiscountAmount: discount.maxDiscountAmount,
-          minOrderAmount: discount.minOrderAmount,
-          amount: amount,
-          rentalTotal: rentalTotal,
-          depositTotal: depositTotal,
-          baseAmountForDiscount: rentalTotal, // Chỉ tính trên tiền thuê
-          expectedAmount:
-            discount.type === "percent"
-              ? (rentalTotal * discount.value) / 100
-              : discount.value,
-          discount: discount,
-        });
+        amount = calculatedAmount;
 
         // Kiểm tra loại discount (public hay private)
         if (discount.isPublic) {
@@ -633,7 +570,6 @@ useEffect(() => {
           }
           setPublicDiscount(discount);
           setPublicDiscountAmount(amount);
-          console.log("Set public discount amount:", amount);
 
           // Nếu đã có mã private, tính lại mã private với baseAmount mới (chỉ trên tiền thuê còn lại)
           if (privateDiscount) {
@@ -684,16 +620,6 @@ useEffect(() => {
               ) {
                 // Sử dụng amount từ revalidate (tính trên tiền thuê còn lại)
                 amount = revalidateResponse.data.amount;
-                console.log(
-                  "Private discount revalidated with remaining rental:",
-                  {
-                    code: discount.code,
-                    baseAmountForDiscount,
-                    amount,
-                    publicDiscountAmount,
-                    originalRental: rentalTotal,
-                  }
-                );
               } else {
                 // Nếu revalidate thất bại, hiển thị lý do cụ thể
                 const errorMsg =
@@ -1104,249 +1030,209 @@ useEffect(() => {
 
   // ham submit mơi
 
-  const processPayment = async () => {
-    setIsSubmitting(true);
-    try {
-      const itemsToProcess = selectedCartItems;
-      const unselectedItems = cartItems.filter(
-        (item) => !selectedItemIds.includes(item._id)
-      );
-      const failedItemIds: string[] = [];
-      const failedItemMessages: string[] = [];
+const processPayment = async () => {
+  setIsSubmitting(true);
 
-      for (const item of itemsToProcess) {
-        console.log("Bắt đầu xử lý cho:", item.title);
+  try {
+    const itemsToProcess = selectedCartItems;
+    const unselectedItems = cartItems.filter(
+      (item) => !selectedItemIds.includes(item._id)
+    );
 
-        const result = await dispatch(
-          createOrderAction({
-            itemId: item.itemId,
-            quantity: item.quantity,
-            startAt: item.rentalStartDate,
-            endAt: item.rentalEndDate,
-            shippingAddress: shipping,
-            paymentMethod: "Wallet",
-            note,
-            publicDiscountCode: publicDiscount?.code || null,
-            privateDiscountCode: privateDiscount?.code || null,
-          })
-        );
+    const failedItemIds: string[] = [];
+    const failedItemMessages: string[] = [];
 
-        if (!result?.success) {
-          const errorMessage = result?.error || "Không thể tạo đơn hàng";
-          toast.error(
-            `Không thể tạo đơn cho sản phẩm: ${item.title}. ${errorMessage}`
-          );
-          failedItemMessages.push(item.title);
-          failedItemIds.push(item._id);
-          console.error(`Order failed for ${item.title}:`, result?.error);
-          continue;
-        }
-        const orderData = result?.data as
-          | { orderId?: string; _id?: string; userId?: string }
-          | undefined;
-        const orderIdRaw = orderData?.orderId ?? orderData?._id;
-        const userId = orderData?.userId;
+    // Tính trước grandTotal cho từng sản phẩm riêng (rất quan trọng!)
+    const getItemGrandTotal = (item: CartItem) => {
+      const itemRental =
+        item.basePrice * item.quantity * calculateRentalDays(item);
+      const itemDeposit = item.depositAmount * item.quantity;
+      const itemServiceFee = (itemRental * serviceFeeRate) / 100;
 
-        if (!orderIdRaw) {
-          console.error("Response từ createOrder:", result);
-          toast.error(`Không lấy được orderId cho sản phẩm: ${item.title}`);
-          failedItemMessages.push(item.title + " (lỗi lấy orderId)");
-          failedItemIds.push(item._id);
-          continue;
-        }
-
-        const orderId =
-          typeof orderIdRaw === "string" ? orderIdRaw : String(orderIdRaw);
-        console.log(" Đã tạo order với ID:", orderId, "Bắt đầu thanh toán...");
-        console.log(" Order data:", result?.data);
-
-        try {
-          // Kiểm tra số dư ví trước khi thanh toán
-          const expectedPaymentAmount = grandTotal; // Số tiền hiển thị trên UI (đã trừ discount)
-
-          console.log("Bắt đầu thanh toán:", {
-            orderId,
-            expectedAmount: expectedPaymentAmount,
-            grandTotal,
-            rentalTotal,
-            serviceFeeAmount,
-            depositTotal,
-            totalDiscountAmount,
-          });
-
-          const paymentResult = await payOrderWithWallet(orderId, userId);
-
-          if (paymentResult && paymentResult.success === false) {
-            const errorMsg =
-              paymentResult.error ||
-              paymentResult.message ||
-              "Thanh toán thất bại";
-            toast.error(
-              `Thanh toán thất bại cho sản phẩm: ${item.title}. ${errorMsg}`
-            );
-            failedItemMessages.push(
-              item.title + " (thanh toán không thành công)"
-            );
-            failedItemIds.push(item._id);
-            continue;
-          }
-
-          console.log(
-            "Thanh toán thành công cho order:",
-            orderId,
-            paymentResult
-          );
-        } catch (paymentError: unknown) {
-          let errorMessage = "Thanh toán thất bại";
-
-          if (paymentError && typeof paymentError === "object") {
-            const error = paymentError as ApiError;
-            const errorData = error.response?.data;
-
-            if (errorData) {
-              console.log(" Error data từ backend:", errorData);
-
-              errorMessage =
-                errorData.message || errorData.error || "Thanh toán thất bại";
-
-              const isInsufficientBalance =
-                errorData.error === "Ví người dùng không đủ tiền" ||
-                errorMessage.includes("không đủ tiền") ||
-                errorData.error?.includes("không đủ tiền") ||
-                errorData.error?.includes("Ví người dùng không đủ tiền");
-
-              console.log(
-                "Is insufficient balance?",
-                isInsufficientBalance,
-                "error:",
-                errorData.error,
-                "errorData:",
-                errorData
-              );
-
-              if (isInsufficientBalance) {
-                // Hiển thị thông tin chi tiết về số dư và số tiền cần
-                const balance = errorData.balance || 0;
-                const required = errorData.required || grandTotal;
-                const shortage = errorData.shortage || required - balance;
-
-                const detailedMessage = `Số dư ví của bạn: ${balance.toLocaleString(
-                  "vi-VN"
-                )}₫\n\nCần thanh toán: ${required.toLocaleString(
-                  "vi-VN"
-                )}₫\n\nThiếu: ${shortage.toLocaleString(
-                  "vi-VN"
-                )}₫\n\nVui lòng nạp thêm tiền vào ví để tiếp tục thanh toán.`;
-
-                setErrorModalTitle("Ví không đủ tiền");
-                setErrorModalMessage(detailedMessage);
-                setIsErrorModalOpen(true);
-                console.log("Đã mở modal lỗi ví không đủ tiền:", {
-                  balance,
-                  required,
-                  shortage,
-                  message: detailedMessage,
-                });
-              } else {
-                toast.error(`${errorMessage} - Sản phẩm: ${item.title}`, {
-                  duration: 5000,
-                });
-              }
-              failedItemMessages.push(
-                item.title + " (thanh toán không thành công)"
-              );
-              failedItemIds.push(item._id);
-              continue;
-            }
-
-            if (typeof error.message === "string") {
-              errorMessage = error.message;
-              toast.error(`${errorMessage} - Sản phẩm: ${item.title}`, {
-                duration: 5000,
-              });
-              failedItemMessages.push(
-                item.title + " (thanh toán không thành công)"
-              );
-              failedItemIds.push(item._id);
-              continue;
-            }
-          }
-
-          if (typeof paymentError === "string") {
-            errorMessage = paymentError;
-          }
-
-          toast.error(`Thanh toán thất bại cho sản phẩm: ${item.title}`, {
-            duration: 5000,
-          });
-          console.error(" Lỗi thanh toán:", paymentError);
-          failedItemMessages.push(
-            item.title + " (thanh toán không thành công)"
-          );
-          failedItemIds.push(item._id);
-          continue;
-        }
-
-        if (!item._id?.startsWith("temp-")) {
-          try {
-            await dispatch(removeItemFromCartAction(item._id));
-          } catch (cartError) {
-            console.error(
-              `Error removing item from cart: ${item.title}`,
-              cartError
-            );
-          }
-        }
+      // Phân bổ giảm giá (nếu có) theo tỷ lệ tiền thuê của item này
+      let itemDiscount = 0;
+      if (totalDiscountAmount > 0 && rentalTotal > 0) {
+        const itemRatio = itemRental / rentalTotal;
+        itemDiscount = Math.floor(totalDiscountAmount * itemRatio);
       }
 
-      const successCount = itemsToProcess.length - failedItemIds.length;
+      return Math.max(
+        0,
+        itemRental - itemDiscount + itemDeposit + itemServiceFee
+      );
+    };
 
-      if (failedItemIds.length === 0) {
-        toast.success(
-          "Thanh toán & tạo đơn tất cả sản phẩm đã chọn thành công!"
-        );
-        const remainingItems = unselectedItems;
-        if (remainingItems.length > 0) {
-          sessionStorage.setItem(
-            "checkoutItems",
-            JSON.stringify(remainingItems)
-          );
-        } else {
-          sessionStorage.removeItem("checkoutItems");
-        }
-        if (
-          router.pathname !== "/my-orders" &&
-          router.asPath !== "/my-orders"
-        ) {
-          router.push("/auth/my-orders");
-        }
-      } else if (successCount > 0) {
-        toast.warning(
-          `Đã xử lý thành công ${successCount} đơn hàng. ${
-            failedItemMessages.length
-          } đơn thất bại: ${failedItemMessages.join(", ")}`
-        );
-        const remainingItems = [
-          ...unselectedItems,
-          ...itemsToProcess.filter((item) => failedItemIds.includes(item._id)),
-        ];
-        sessionStorage.setItem("checkoutItems", JSON.stringify(remainingItems));
-      } else {
+    for (const item of itemsToProcess) {
+      console.log("Bắt đầu xử lý cho:", item.title);
+
+      // Tạo đơn hàng
+      const result = await dispatch(
+        createOrderAction({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          startAt: item.rentalStartDate,
+          endAt: item.rentalEndDate,
+          shippingAddress: shipping,
+          paymentMethod: "Wallet", 
+          note,
+          publicDiscountCode: publicDiscount?.code || null,
+          privateDiscountCode: privateDiscount?.code || null,
+        })
+      );
+
+      if (!result?.success) {
+        const errorMessage = result?.error || "Không thể tạo đơn hàng";
+        toast.error(`Tạo đơn thất bại: ${item.title} - ${errorMessage}`);
+        failedItemMessages.push(item.title);
+        failedItemIds.push(item._id);
+        continue;
+      }
+
+      const orderId = result.data?._id || result.data?.orderId;
+      if (!orderId) {
         toast.error(
-          `Không thể xử lý đơn hàng nào. Chi tiết: ${failedItemMessages.join(
+          `Lỗi hệ thống: Không lấy được ID đơn hàng cho ${item.title}`
+        );
+        failedItemMessages.push(item.title);
+        failedItemIds.push(item._id);
+        continue;
+      }
+
+      console.log("Đã tạo đơn:", orderId);
+
+      // Nếu chọn "Thanh toán sau" → xong, bỏ qua thanh toán
+      if (paymentOption === "pay_later") {
+        console.log("Thanh toán sau → không trừ ví");
+
+        // Xóa khỏi giỏ (nếu không phải temp)
+        if (!item._id.startsWith("temp-")) {
+  try {
+    await dispatch(removeItemFromCartAction(item._id));
+  } catch (e) {
+    console.error("Remove cart item failed:", e);
+  }
+}
+continue;
+
+      }
+
+      // CHỈ VÀO ĐÂY KHI CHỌN "THANH TOÁN NGAY"
+      try {
+        // Tính số tiền cần trừ cho chính xác từng đơn (không dùng grandTotal chung!)
+        const amountToPay = getItemGrandTotal(item);
+
+        const paymentResult = await payOrderWithWallet(orderId);
+
+        if (!paymentResult?.success) {
+          const msg =
+            paymentResult?.message ||
+            paymentResult?.error ||
+            "Thanh toán thất bại";
+          toast.error(`Thanh toán thất bại: ${item.title} - ${msg}`);
+
+          // Đặc biệt: nếu ví không đủ → hiện modal + dừng toàn bộ
+          if (msg.includes("không đủ") || msg.includes("insufficient")) {
+            const balance = paymentResult?.balance || 0;
+            const required = paymentResult?.required || amountToPay;
+            const shortage = required - balance;
+
+            setErrorModalTitle("Ví không đủ tiền");
+            setErrorModalMessage(
+              `Số dư ví: ${balance.toLocaleString("vi-VN")}₫\n\n` +
+                `Cần thanh toán: ${required.toLocaleString("vi-VN")}₫\n\n` +
+                `Thiếu: ${shortage.toLocaleString("vi-VN")}₫\n\n` +
+                `Vui lòng nạp thêm tiền để tiếp tục.`
+            );
+            setIsErrorModalOpen(true);
+
+            // DỪNG LUÔN vòng lặp khi thiếu tiền
+            failedItemIds.push(item._id);
+            failedItemMessages.push(item.title + " (thiếu tiền ví)");
+            break; // ← QUAN TRỌNG: Không xử lý các đơn tiếp theo
+          } else {
+            failedItemIds.push(item._id);
+            failedItemMessages.push(item.title);
+          }
+          continue;
+        }
+
+        console.log("Thanh toán thành công:", orderId);
+      } catch (err: unknown) {
+        console.error("Lỗi thanh toán ví:", err);
+
+        // Xử lý lỗi không đủ tiền
+        const apiError = err as ApiError;
+        if (apiError?.response?.data?.balance !== undefined) {
+          const balance = apiError.response.data.balance || 0;
+          const required = apiError.response.data.required || 0;
+          const shortage = required - balance;
+
+          setErrorModalTitle("Ví không đủ tiền");
+          setErrorModalMessage(
+            `Số dư ví: ${balance.toLocaleString("vi-VN")}₫\n\n` +
+              `Cần thanh toán: ${required.toLocaleString("vi-VN")}₫\n\n` +
+              `Thiếu: ${shortage.toLocaleString("vi-VN")}₫`
+          );
+          setIsErrorModalOpen(true);
+
+          failedItemIds.push(item._id);
+          failedItemMessages.push(item.title + " (thiếu tiền ví)");
+          break; // Dừng luôn
+        } else {
+          toast.error(`Thanh toán thất bại: ${item.title}`);
+          failedItemIds.push(item._id);
+          failedItemMessages.push(item.title);
+        }
+        continue;
+      }
+
+      // Xóa khỏi giỏ nếu thanh toán thành công
+      if (!item._id.startsWith("temp-")) {
+        await dispatch(removeItemFromCartAction(item._id))
+          .unwrap()
+          .catch(() => {});
+      }
+    }
+
+    // KẾT THÚC XỬ LÝ
+    const successCount = itemsToProcess.length - failedItemIds.length;
+
+    if (failedItemIds.length === 0) {
+      toast.success(
+        paymentOption === "pay_now"
+          ? "Tất cả đơn hàng đã được thanh toán thành công!"
+          : "Tạo đơn thành công! Bạn có thể thanh toán sau trong mục Đơn thuê."
+      );
+
+      sessionStorage.removeItem("checkoutItems");
+      router.push("/auth/my-orders");
+    } else if (successCount > 0) {
+      toast.warning(
+        `Đã xử lý thành công ${successCount} sản phẩm. ` +
+          `${failedItemIds.length} sản phẩm thất bại: ${failedItemMessages.join(
             ", "
           )}`
-        );
-        const remainingItems = [...unselectedItems, ...itemsToProcess];
-        sessionStorage.setItem("checkoutItems", JSON.stringify(remainingItems));
-      }
-    } catch (err) {
-      console.error("Checkout error:", err);
-      toast.error("Có lỗi xảy ra khi tạo đơn hàng, vui lòng thử lại.");
-    } finally {
-      setIsSubmitting(false);
+      );
+
+      const remaining = [
+        ...unselectedItems,
+        ...itemsToProcess.filter((i) => failedItemIds.includes(i._id)),
+      ];
+      sessionStorage.setItem("checkoutItems", JSON.stringify(remaining));
+    } else {
+      toast.error("Tất cả đơn hàng đều thất bại. Vui lòng thử lại.");
+      sessionStorage.setItem(
+        "checkoutItems",
+        JSON.stringify([...unselectedItems, ...itemsToProcess])
+      );
     }
-  };
+  } catch (err) {
+    console.error("Lỗi checkout:", err);
+    toast.error("Có lỗi xảy ra. Vui lòng thử lại.");
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleSubmit = () => {
    
@@ -1356,6 +1242,13 @@ useEffect(() => {
 
     if (!hasSelectedAddress && !hasManualAddress) {
       toast.error("Vui lòng chọn địa chỉ đã lưu hoặc nhập địa chỉ mới");
+      return;
+    }
+
+    // Validate số điện thoại trước khi submit
+    const phoneValidationError = validateVietnamesePhone(shipping.phone);
+    if (phoneValidationError) {
+      toast.error(phoneValidationError);
       return;
     }
 
@@ -1401,11 +1294,16 @@ useEffect(() => {
       `\n💰 Tổng cộng: ${grandTotal.toLocaleString("vi-VN")}₫`
     );
 
-    const message = `Bạn có chắc chắn muốn thanh toán ${
-      selectedCartItems.length
-    } sản phẩm?\n\n${paymentDetails.join(
+    const warningText =
+    paymentOption === "pay_now"
+      ? "⚠️ Sau khi xác nhận, tiền sẽ được trừ ngay từ ví của bạn."
+      : "✅ Bạn chỉ tạo đơn hàng, chưa bị trừ tiền ví. Có thể thanh toán sau trong mục Đơn thuê.";
+
+    const message = `Bạn có chắc chắn muốn ${
+      paymentOption === "pay_now" ? "thanh toán" : "tạo đơn thuê"
+    } ${selectedCartItems.length} sản phẩm?\n\n${paymentDetails.join(
       "\n"
-    )}\n\n⚠️ Sau khi xác nhận, tiền sẽ được trừ từ ví của bạn.`;
+    )}\n\n${warningText}`;
 
     setConfirmPopup({
       isOpen: true,
@@ -1588,9 +1486,9 @@ useEffect(() => {
                             <Image
                               src={item.primaryImage}
                               alt={item.title}
-                              fill
-                              sizes="128px"
-                              className="object-cover"
+                              width={128}
+                              height={128}
+                              className="object-cover w-full h-full"
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-400">
@@ -1946,74 +1844,36 @@ useEffect(() => {
                   <span>Địa chỉ nhận hàng</span>
                 </h2>
 
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">
+                <div className="space-y-4">
+                  {/* Labels row - luôn trên cùng một hàng */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                       Họ và tên <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      placeholder="Nhập họ và tên"
-                      className="w-full px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition shadow-sm hover:border-gray-300"
-                      value={shipping.fullName}
-                      onChange={(e) =>
-                        setShipping({ ...shipping, fullName: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">
+                    <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                       Số điện thoại <span className="text-red-500">*</span>
                     </label>
+                  </div>
 
-                    {/* Phone Options */}
-                    <div className="flex gap-4 mb-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="phoneOption"
-                          checked={useDefaultPhone}
-                          onChange={() => setUseDefaultPhone(true)}
-                          className="w-4 h-4 text-emerald-600 border-gray-300 focus:ring-emerald-500"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Dùng số mặc định
-                          {defaultPhone && (
-                            <span className="ml-2 text-emerald-600 font-medium">
-                              ({defaultPhone})
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="phoneOption"
-                          checked={!useDefaultPhone}
-                          onChange={() => setUseDefaultPhone(false)}
-                          className="w-4 h-4 text-emerald-600 border-gray-300 focus:ring-emerald-500"
-                        />
-                        <span className="text-sm text-gray-700">
-                          Nhập số mới
-                        </span>
-                      </label>
-                    </div>
-
-                    {/* Phone Input */}
-                    {useDefaultPhone ? (
-                      <div className="px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl text-base text-gray-700">
-                        {defaultPhone || "Đang tải số điện thoại..."}
-                      </div>
-                    ) : (
+                  {/* Inputs row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
                       <input
-                        type="tel"
-                        placeholder="Nhập số điện thoại mới"
+                        placeholder="Nhập họ và tên"
                         className="w-full px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition shadow-sm hover:border-gray-300"
-                        value={shipping.phone}
+                        value={shipping.fullName}
                         onChange={(e) =>
-                          setShipping({ ...shipping, phone: e.target.value })
+                          setShipping({ ...shipping, fullName: e.target.value })
                         }
                       />
-                    )}
+                    </div>
+                    <div>
+                      <CheckoutPhoneInput
+                        value={shipping.phone}
+                        onChange={(phone) => setShipping({ ...shipping, phone })}
+                        defaultPhone={defaultPhone}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -2326,6 +2186,11 @@ useEffect(() => {
                                                 Riêng tư
                                               </span>
                                             )}
+                                            {discount.isSpecial && (
+                                              <span className="text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium">
+                                                Đặc biệt
+                                              </span>
+                                            )}
                                             {isUpcoming && (
                                               <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">
                                                 Sắp tới
@@ -2539,28 +2404,7 @@ useEffect(() => {
                       {depositTotal.toLocaleString("vi-VN")}₫
                     </span>
                   </div>
-                  {publicDiscount && publicDiscountAmount > 0 && (
-                    <div className="flex justify-between items-center py-2 border-b border-white/20">
-                      <span className="text-blue-200 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4" />
-                        Giảm giá công khai ({publicDiscount.code})
-                      </span>
-                      <span className="font-semibold text-blue-100">
-                        -{publicDiscountAmount.toLocaleString("vi-VN")}₫
-                      </span>
-                    </div>
-                  )}
-                  {privateDiscount && privateDiscountAmount > 0 && (
-                    <div className="flex justify-between items-center py-2 border-b border-white/20">
-                      <span className="text-purple-200 flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4" />
-                        Giảm giá riêng tư ({privateDiscount.code})
-                      </span>
-                      <span className="font-semibold text-purple-100">
-                        -{privateDiscountAmount.toLocaleString("vi-VN")}₫
-                      </span>
-                    </div>
-                  )}
+                 
                   {totalDiscountAmount > 0 && (
                     <div className="flex justify-between items-center py-2 border-b border-white/20">
                       <span className="text-green-200 flex items-center gap-2">
@@ -2589,7 +2433,48 @@ useEffect(() => {
                     </span>
                   </div>
                 </div>
+                <div className="mt-6 space-y-3"> 
+                  <h3 className="font-semibold text-lg">Phương thức thanh toán</h3>
 
+                  <div className="space-y-2">
+                    {/* Thanh toán ngay */}
+                    <label className="flex items-center gap-3 cursor-pointer border p-3 rounded-lg">
+                      <input
+                        type="radio"
+                        name="paymentOption"
+                        value="pay_now"
+                        checked={paymentOption === "pay_now"}
+                        onChange={() => setPaymentOption("pay_now")}
+                        className="w-4 h-4"
+                      />
+                      <div>
+                        <p className="font-medium">Thanh toán ngay</p>
+                        <p className="text-sm text-amber-200">
+                          Thanh toán bằng ví, tiền sẽ bị trừ ngay
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Thanh toán sau */}
+                    <label className="flex items-center gap-3 cursor-pointer border p-3 rounded-lg">
+                      <input
+                        type="radio"
+                        name="paymentOption"
+                        value="pay_later"
+                        checked={paymentOption === "pay_later"}
+                        onChange={() => setPaymentOption("pay_later")}
+                        className="w-4 h-4"
+                      />
+                      <div>
+                        <p className="font-medium">Thanh toán sau</p>
+                        <p className="text-sm text-amber-200">
+                          Chỉ tạo đơn hàng, thanh toán sau trong mục đơn thuê
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+  
                 <button
                   onClick={handleSubmit}
                   disabled={isSubmitting}
@@ -2709,7 +2594,6 @@ useEffect(() => {
         <PopupModal
           isOpen={isErrorModalOpen}
           onClose={() => {
-            console.log("Đóng modal lỗi ví không đủ tiền");
             setIsErrorModalOpen(false);
           }}
           type="error"

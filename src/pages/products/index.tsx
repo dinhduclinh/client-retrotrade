@@ -53,6 +53,109 @@ interface TagItem {
   name: string;
   count?: number;
 }
+
+// Raw API response types
+interface RawTag {
+  TagId?: string;
+  Tag?: {
+    _id?: string;
+    name?: string;
+  };
+  _id?: string;
+  id?: string;
+  TagName?: string;
+  Name?: string;
+  name?: string;
+}
+
+interface RawCategory {
+  _id?: string | { $oid: string };
+  name?: string;
+  slug?: string;
+  parentCategoryId?: string | null | { $oid: string };
+  isActive?: boolean;
+  level?: number;
+  children?: RawCategory[];
+}
+
+interface RawProductItem {
+  _id?: string | { $oid: string };
+  Title?: string;
+  ShortDescription?: string;
+  Images?: Array<{ Url?: string }>;
+  BasePrice?: number;
+  Currency?: string;
+  DepositAmount?: number;
+  CreatedAt?: string;
+  AvailableQuantity?: number;
+  Quantity?: number;
+  ViewCount?: number;
+  RentCount?: number;
+  FavoriteCount?: number;
+  Category?: {
+    _id?: string | { $oid: string };
+    name?: string;
+  };
+  Condition?: {
+    ConditionName?: string;
+  };
+  PriceUnit?: {
+    UnitName?: string;
+  };
+  Tags?: RawTag[];
+  City?: string;
+  District?: string;
+}
+
+interface HighlightedProduct {
+  _id?: string;
+  Title?: string;
+  Description?: string;
+  thumbnail?: string;
+  images?: Array<{ Url?: string; url?: string; thumbnail?: string } | string>;
+  BasePrice?: number;
+  Currency?: string;
+  DepositAmount?: number;
+  CreatedAt?: string;
+  ViewCount?: number;
+  RentCount?: number;
+  FavoriteCount?: number;
+  Address?: string;
+  District?: string;
+  City?: string;
+  condition?: {
+    ConditionName?: string;
+  };
+  PriceUnitId?: number;
+  priceUnit?: {
+    UnitName?: string;
+  };
+  CategoryId?: string;
+  category?: {
+    _id?: string;
+    Name?: string;
+    name?: string;
+  };
+  tags?: Array<{
+    _id?: string;
+    Name?: string;
+    name?: string;
+  }>;
+}
+
+interface RawTagItem {
+  _id?: string | { $oid: string };
+  name?: string;
+  count?: number;
+}
+
+interface FavoriteItem {
+  productId?: {
+    _id?: string | { $oid: string };
+    FavoriteCount?: number;
+  };
+}
+
 interface Product {
   _id: string;
   title: string;
@@ -81,46 +184,48 @@ interface Product {
   city?: string;
   district?: string;
 }
-const toIdString = (v: any): string => {
+const toIdString = (v: unknown): string => {
   if (v == null) return "";
   if (typeof v === "string") return v;
-  if (typeof v === "object" && typeof v.$oid === "string") return v.$oid;
-  if (typeof v === "object" && typeof v.toString === "function")
-    return v.toString();
+  if (typeof v === "object" && v !== null) {
+    if ("$oid" in v && typeof v.$oid === "string") return v.$oid;
+    if ("toString" in v && typeof v.toString === "function")
+      return v.toString();
+  }
   try {
     return String(v);
   } catch {
     return "";
   }
 };
-const normalizeItems = (rawItems: any[]): Product[] => {
+const normalizeItems = (rawItems: RawProductItem[]): Product[] => {
   return rawItems.map((item) => ({
     _id: toIdString(item._id),
-    title: item.Title,
-    shortDescription: item.ShortDescription,
+    title: item.Title || "",
+    shortDescription: item.ShortDescription || "",
     thumbnail: item.Images?.[0]?.Url || "/placeholder.jpg",
-    basePrice: item.BasePrice,
-    currency: item.Currency,
-    depositAmount: item.DepositAmount,
-    createdAt: item.CreatedAt,
-    availableQuantity: item.AvailableQuantity,
-    quantity: item.Quantity,
-    viewCount: item.ViewCount,
-    rentCount: item.RentCount,
+    basePrice: item.BasePrice || 0,
+    currency: item.Currency || "VND",
+    depositAmount: item.DepositAmount || 0,
+    createdAt: item.CreatedAt || "",
+    availableQuantity: item.AvailableQuantity || 0,
+    quantity: item.Quantity || 0,
+    viewCount: item.ViewCount || 0,
+    rentCount: item.RentCount || 0,
     favoriteCount: item.FavoriteCount || 0,
     category: item.Category
-      ? { _id: toIdString(item.Category._id), name: item.Category.name }
+      ? { _id: toIdString(item.Category._id), name: item.Category.name || "" }
       : undefined,
     condition: item.Condition
-      ? { ConditionName: item.Condition.ConditionName }
+      ? { ConditionName: item.Condition.ConditionName || "" }
       : undefined,
     priceUnit: item.PriceUnit
-      ? { UnitName: item.PriceUnit.UnitName }
+      ? { UnitName: item.PriceUnit.UnitName || "" }
       : undefined,
     tags: Array.isArray(item.Tags)
-      ? (item.Tags.map((t: any) => {
+      ? (item.Tags.map((t: RawTag) => {
         const id = toIdString(t.TagId || t.Tag?._id || t._id || t.id);
-        const name = t.Tag?.name || t.TagName || t.Name || t.name;
+        const name = t.Tag?.name || t.TagName || t.Name || t.name || "";
         if (!id || !name) return null;
         return { _id: id, name };
       }).filter(Boolean) as { _id: string; name: string }[])
@@ -241,7 +346,7 @@ export default function ProductPage() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        const formattedProducts = (result.data || []).map((product: any) => {
+        const formattedProducts = (result.data || []).map((product: HighlightedProduct) => {
           // Get the thumbnail URL from the API response
           let thumbnailUrl = product.thumbnail || '/placeholder-image.jpg';
 
@@ -313,9 +418,9 @@ export default function ProductPage() {
               _id: product.category._id || (product.CategoryId || ''),
               name: product.category.Name || product.category.name || ''
             } : null,
-            tags: (product.tags || []).map((tag: any) => ({
-              _id: tag._id,
-              name: tag.Name || tag.name
+            tags: (product.tags || []).map((tag) => ({
+              _id: tag._id || "",
+              name: tag.Name || tag.name || ""
             })),
             isHighlighted: true // Since we're fetching highlighted products
           };
@@ -394,14 +499,14 @@ export default function ProductPage() {
         console.log('DEBUG - Categories loaded:', normalizedCates.length);
         
         // Flatten the nested category structure
-        const flattenCategories = (categories: any[]): Category[] => {
+        const flattenCategories = (categories: RawCategory[]): Category[] => {
           const result: Category[] = [];
           
-          const processCategory = (category: any) => {
+          const processCategory = (category: RawCategory) => {
             const processed: Category = {
               _id: toIdString(category._id),
-              name: category.name,
-              slug: category.slug || category.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+              name: category.name || "",
+              slug: category.slug || category.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || "",
               parentCategoryId: category.parentCategoryId === "" || category.parentCategoryId == null
                 ? null
                 : toIdString(category.parentCategoryId),
@@ -431,9 +536,9 @@ export default function ProductPage() {
         );
         setFeaturedItems(normalizedFeatured);
         const tagList: TagItem[] = (tagsRes?.data?.tags || []).map(
-          (t: any) => ({
+          (t: RawTagItem) => ({
             _id: toIdString(t._id),
-            name: t.name,
+            name: t.name || "",
             count: t.count,
           })
         );
@@ -458,13 +563,13 @@ export default function ProductPage() {
         const res = await getFavorites();
         if (res.ok) {
           const data = await res.json();
-          const favorites = data.data || [];
+          const favorites = (data.data || []) as FavoriteItem[];
           const favoriteIds = new Set<string>(
-            favorites.map((fav: any) => toIdString(fav.productId?._id))
+            favorites.map((fav) => toIdString(fav.productId?._id))
           );
           setLocalFavorites(favoriteIds);
           const countsMap = new Map<string, number>();
-          favorites.forEach((fav: any) => {
+          favorites.forEach((fav) => {
             const prodId = toIdString(fav.productId?._id);
             const count = Number(fav.productId?.FavoriteCount || 0);
             countsMap.set(prodId, count);
@@ -499,6 +604,19 @@ export default function ProductPage() {
     dispatch,
     router,
   ]);
+
+  // Reset all filters
+  const resetAllFilters = () => {
+    setSelectedCategory(null);
+    setMinPrice(0);
+    setMaxPrice(Number.MAX_SAFE_INTEGER);
+    setSelectedPriceRange(null);
+    setSelectedProvince("");
+    setSelectedTagIds(new Set());
+    setSearch("");
+    setShowCustomPrice(false);
+    setPriceRange({ from: 0, to: 0 });
+  };
 
   // Helper functions for categories
   const getChildren = (parentId: string | null) =>
@@ -642,7 +760,7 @@ export default function ProductPage() {
         otherParams.delete("category"); // Remove category from other params
         
         const otherParamsString = otherParams.toString();
-        const newUrl = `${pathname}?category=${categoryPath}${otherParamsString ? '&' + otherParamsString : ''}`;
+        const newUrl = `${pathname}/${categoryPath}${otherParamsString ? '&' + otherParamsString : ''}`;
         window.history.replaceState({}, '', newUrl);
       }
     } else {
@@ -786,8 +904,8 @@ export default function ProductPage() {
         );
         toast.success("Đã thêm vào yêu thích!");
       }
-    } catch (err: any) {
-      const errorMsg = err.message || "Lỗi khi cập nhật yêu thích.";
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Lỗi khi cập nhật yêu thích.";
       toast.error(errorMsg);
       if (isFavorite) {
         setLocalFavorites((prev) => new Set([...prev, productId]));
@@ -855,7 +973,19 @@ export default function ProductPage() {
           {/* Sidebar */}
           <aside className="w-72 hidden lg:block">
             <div className="bg-white shadow rounded-2xl p-4 sticky top-6">
-              <h3 className="font-semibold mb-4">Bộ lọc</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold">Bộ lọc</h3>
+                {(selectedCategory || minPrice > 0 || maxPrice < Number.MAX_SAFE_INTEGER || 
+                  selectedProvince || selectedTagIds.size > 0) && (
+                  <button
+                    onClick={resetAllFilters}
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    <X size={14} />
+                    <span>Xóa lọc</span>
+                  </button>
+                )}
+              </div>
               {/* Categories */}
               <div className="space-y-3 mb-6">
                 <h4 className="font-medium text-gray-700">Danh mục</h4>
@@ -1079,28 +1209,18 @@ export default function ProductPage() {
                     </button>
                   )}
                 </div>
-                <div className="space-y-2">
-                  {(showAllProvinces ? vietnamProvinces : vietnamProvinces.slice(0, 6)).map((p) => (
-                    <label key={p} className="flex items-center gap-2 text-sm text-gray-700">
-                      <input
-                        type="radio"
-                        name="province"
-                        checked={selectedProvince === p}
-                        onChange={() => setSelectedProvince(p)}
-                        className="accent-blue-600"
-                      />
-                      <span>{p}</span>
-                    </label>
+                <select
+                  value={selectedProvince}
+                  onChange={(e) => setSelectedProvince(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Tất cả tỉnh thành</option>
+                  {vietnamProvinces.map((province) => (
+                    <option key={province} value={province}>
+                      {province}
+                    </option>
                   ))}
-                  {vietnamProvinces.length > 6 && (
-                    <button
-                      onClick={() => setShowAllProvinces((v) => !v)}
-                      className="text-xs text-blue-500 hover:underline"
-                    >
-                      {showAllProvinces ? "Thu gọn" : "Xem thêm"}
-                    </button>
-                  )}
-                </div>
+                </select>
               </div>
               {/* Tags */}
               <div className="mb-6">
@@ -1136,31 +1256,12 @@ export default function ProductPage() {
             </div>
           </aside>
 
-          {/* Main Content */}
           <main
             className={`flex-1 transition-all duration-500 ease-out ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
               }`}
           >
-            <div className="flex justify-between items-center mb-6">
+            <div className="mb-6">
               <h1 className="text-3xl font-bold">Sản phẩm cho thuê</h1>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => router.push("/products/myfavorite")}
-                  className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 text-sm"
-                  disabled={!isAuthenticated}
-                >
-                  <Bookmark className="w-4 h-4 text-yellow-300" />
-                  <span>Danh sách yêu thích</span>
-                </button>
-                {search && (
-                  <button
-                    onClick={() => setSearch("")}
-                    className="text-blue-500 hover:underline"
-                  >
-                    <X size={20} />
-                  </button>
-                )}
-              </div>
             </div>
             <div className="mb-6">
               <div className="flex items-center gap-3 flex-wrap">

@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSelector } from "react-redux";
-import { RootState } from "@/store/redux_store";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/common/card";
+import { Card, CardContent } from "@/components/ui/common/card";
 import { Badge } from "@/components/ui/common/badge";
 import { Button } from "@/components/ui/common/button";
 import { Input } from "@/components/ui/common/input";
@@ -15,13 +14,10 @@ import {
   CheckCircle,
   XCircle,
   User,
-  Mail,
   Search,
   RefreshCw,
   Eye,
-  Clock,
   UserCheck,
-  ArrowLeft,
   FileText,
   Calendar,
   MapPin,
@@ -34,7 +30,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/common/avatar";
 
 export function VerificationRequestManagement() {
-  const { accessToken } = useSelector((state: RootState) => state.auth);
   const [requests, setRequests] = useState<VerificationRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,10 +49,32 @@ export function VerificationRequestManagement() {
   });
   const [isHandling, setIsHandling] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRequests();
   }, [statusFilter]);
+
+  // Handle enlarged image modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && enlargedImage) {
+        e.preventDefault();
+        e.stopPropagation();
+        setEnlargedImage(null);
+      }
+    };
+
+    if (enlargedImage) {
+      document.addEventListener("keydown", handleEscape, true); // Use capture phase
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape, true);
+      document.body.style.overflow = "unset";
+    };
+  }, [enlargedImage]);
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -86,6 +103,10 @@ export function VerificationRequestManagement() {
       const response = await verificationRequestAPI.getVerificationRequestById(request._id);
       if (response.code === 200 && response.data) {
         setSelectedRequest(response.data);
+        // Log để debug ảnh
+        if (response.data.documents) {
+          console.log("Documents URLs:", response.data.documents.map((d: { documentType: string; fileUrl: string; uploadedAt: string }) => d.fileUrl));
+        }
         setDetailDialog(true);
       } else {
         toast.error(response.message || "Không thể tải chi tiết yêu cầu");
@@ -337,34 +358,47 @@ export function VerificationRequestManagement() {
                       {getStatusBadge(request.status)}
                     </div>
 
-                    {request.idCardInfo && (
-                      <div className="mt-3 space-y-1 text-sm text-gray-600">
-                        {request.idCardInfo.idNumber && (
-                          <div className="flex items-center gap-2">
-                            <CreditCard className="w-4 h-4" />
-                            <span>Số CCCD: {request.idCardInfo.idNumber}</span>
-                          </div>
-                        )}
-                        {request.idCardInfo.fullName && (
-                          <div className="flex items-center gap-2">
-                            <User className="w-4 h-4" />
-                            <span>Họ tên: {request.idCardInfo.fullName}</span>
-                          </div>
-                        )}
-                        {request.idCardInfo.dateOfBirth && (
-                          <div className="flex items-center gap-2">
-                            <Calendar className="w-4 h-4" />
-                            <span>
-                              Ngày sinh: {new Date(request.idCardInfo.dateOfBirth).toLocaleDateString('vi-VN')}
-                            </span>
-                          </div>
-                        )}
-                        {request.idCardInfo.address && (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4" />
-                            <span>Địa chỉ: {request.idCardInfo.address}</span>
-                          </div>
-                        )}
+                    {request.idCardInfo ? (
+                      <div className="mt-3 space-y-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Shield className="w-4 h-4 text-green-600" />
+                          <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded">
+                            Đã có thông tin OCR
+                          </span>
+                        </div>
+                        <div className="space-y-1 text-sm text-gray-600 bg-gray-50 p-2 rounded">
+                          {request.idCardInfo.idNumber && (
+                            <div className="flex items-center gap-2">
+                              <CreditCard className="w-4 h-4 text-indigo-600" />
+                              <span><strong>Số CCCD:</strong> {request.idCardInfo.idNumber}</span>
+                            </div>
+                          )}
+                          {request.idCardInfo.fullName && (
+                            <div className="flex items-center gap-2">
+                              <User className="w-4 h-4 text-indigo-600" />
+                              <span><strong>Họ tên:</strong> {request.idCardInfo.fullName}</span>
+                            </div>
+                          )}
+                          {request.idCardInfo.dateOfBirth && (
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-indigo-600" />
+                              <span>
+                                <strong>Ngày sinh:</strong> {new Date(request.idCardInfo.dateOfBirth).toLocaleDateString('vi-VN')}
+                              </span>
+                            </div>
+                          )}
+                          {request.idCardInfo.address && (
+                            <div className="flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-indigo-600" />
+                              <span><strong>Địa chỉ:</strong> {request.idCardInfo.address}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                        <Shield className="w-4 h-4" />
+                        <span>Chưa có thông tin OCR - cần nhập thủ công</span>
                       </div>
                     )}
 
@@ -436,7 +470,18 @@ export function VerificationRequestManagement() {
       )}
 
       {/* Detail Dialog */}
-      <Dialog open={detailDialog} onOpenChange={setDetailDialog}>
+      <Dialog 
+        open={detailDialog} 
+        onOpenChange={(open) => {
+          // Chỉ đóng dialog nếu modal phóng to ảnh không đang mở
+          // Nếu modal phóng to đang mở, không cho phép đóng dialog
+          if (enlargedImage && !open) {
+            // Nếu đang cố đóng dialog nhưng modal phóng to đang mở, không làm gì
+            return;
+          }
+          setDetailDialog(open);
+        }}
+      >
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto z-[100]">
           <DialogHeader>
             <DialogTitle>Chi tiết yêu cầu xác minh</DialogTitle>
@@ -465,31 +510,39 @@ export function VerificationRequestManagement() {
                   <div>
                     <label className="text-sm font-medium text-gray-700">Trạng thái xác minh</label>
                     <p className="text-gray-900">
-                      {selectedRequest.userId?.isIdVerified ? "Đã xác minh" : "Chưa xác minh"}
+                      {selectedRequest.userId && typeof selectedRequest.userId === "object" && "isIdVerified" in selectedRequest.userId && (selectedRequest.userId as { isIdVerified?: boolean })?.isIdVerified
+                        ? "Đã xác minh"
+                        : "Chưa xác minh"}
                     </p>
                   </div>
                 </div>
               </div>
 
               {/* ID Card Info */}
-              {selectedRequest.idCardInfo && (
+              {selectedRequest.idCardInfo ? (
                 <div className="border-b pb-4">
                   <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <CreditCard className="w-5 h-5" />
-                    Thông tin căn cước công dân
+                    <CreditCard className="w-5 h-5 text-indigo-600" />
+                    Thông tin căn cước công dân (đã được OCR và xác nhận)
                   </h3>
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-3">
+                    <p className="text-sm text-indigo-800 flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      Thông tin này đã được hệ thống OCR tự động và được người dùng xác nhận trước khi gửi yêu cầu.
+                    </p>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm font-medium text-gray-700">Số căn cước công dân</label>
-                      <p className="text-gray-900">{selectedRequest.idCardInfo.idNumber || "N/A"}</p>
+                      <p className="text-gray-900 font-semibold">{selectedRequest.idCardInfo.idNumber || "N/A"}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Họ và tên</label>
-                      <p className="text-gray-900">{selectedRequest.idCardInfo.fullName || "N/A"}</p>
+                      <p className="text-gray-900 font-semibold">{selectedRequest.idCardInfo.fullName || "N/A"}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Ngày tháng năm sinh</label>
-                      <p className="text-gray-900">
+                      <p className="text-gray-900 font-semibold">
                         {selectedRequest.idCardInfo.dateOfBirth
                           ? new Date(selectedRequest.idCardInfo.dateOfBirth).toLocaleDateString('vi-VN')
                           : "N/A"}
@@ -497,8 +550,21 @@ export function VerificationRequestManagement() {
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Địa chỉ thường trú</label>
-                      <p className="text-gray-900">{selectedRequest.idCardInfo.address || "N/A"}</p>
+                      <p className="text-gray-900 font-semibold">{selectedRequest.idCardInfo.address || "N/A"}</p>
                     </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="border-b pb-4">
+                  <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <CreditCard className="w-5 h-5 text-orange-600" />
+                    Thông tin căn cước công dân
+                  </h3>
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                    <p className="text-sm text-orange-800 flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      Không có thông tin OCR. Vui lòng nhập thủ công thông tin từ ảnh CCCD khi duyệt yêu cầu.
+                    </p>
                   </div>
                 </div>
               )}
@@ -510,22 +576,42 @@ export function VerificationRequestManagement() {
                     <FileText className="w-5 h-5" />
                     Tài liệu đã upload
                   </h3>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className={`grid gap-4 ${selectedRequest.documents.length === 1 ? 'grid-cols-1' : selectedRequest.documents.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                     {selectedRequest.documents.map((doc, index) => (
-                      <div key={index} className="border rounded-lg p-2">
-                        <p className="text-sm font-medium text-gray-700 mb-2">
-                          {doc.documentType === 'selfie' ? 'Ảnh cá nhân' :
-                           doc.documentType === 'idCardFront' ? 'Mặt trước CCCD' :
-                           doc.documentType === 'idCardBack' ? 'Mặt sau CCCD' : 'Tài liệu'}
+                      <div key={index} className="border rounded-lg p-3 bg-gray-50 hover:bg-gray-100 transition-colors">
+                        <p className="text-sm font-medium text-gray-700 mb-3 text-center">
+                          {doc.documentType === 'idCardFront' ? 'Mặt trước CCCD' :
+                           doc.documentType === 'idCardBack' ? 'Mặt sau CCCD' : 
+                           doc.documentType === 'selfie' ? 'Ảnh cá nhân (cũ)' : 'Tài liệu'}
                         </p>
-                        <img
-                          src={doc.fileUrl}
-                          alt={doc.documentType}
-                          className="w-full h-32 object-cover rounded"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = "/file.svg";
-                          }}
-                        />
+                        <div
+                          className="relative w-full h-48 md:h-64 rounded-lg overflow-hidden cursor-zoom-in group border-2 border-gray-200 hover:border-indigo-400 transition-all shadow-sm hover:shadow-lg bg-white"
+                          onClick={() => setEnlargedImage(doc.fileUrl)}
+                        >
+                          <img
+                            src={doc.fileUrl}
+                            alt={doc.documentType}
+                            className="w-full h-full object-contain bg-white transition-transform duration-300 group-hover:scale-105"
+                            style={{ display: 'block' }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = "/file.svg";
+                              target.style.backgroundColor = "#f3f4f6";
+                            }}
+                            onLoad={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.backgroundColor = "#ffffff";
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/0 via-transparent to-transparent group-hover:from-black/20 group-hover:via-black/10 group-hover:to-black/20 transition-opacity flex items-center justify-center pointer-events-none">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center gap-2">
+                              <Eye className="w-8 h-8 text-white drop-shadow-lg" />
+                              <span className="text-white text-sm font-medium bg-black/70 px-3 py-1 rounded-full">
+                                Click để phóng to
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -721,6 +807,65 @@ export function VerificationRequestManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Image Enlarge Modal */}
+      {enlargedImage && typeof window !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] bg-black bg-opacity-95 flex items-center justify-center p-4"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.nativeEvent.stopImmediatePropagation();
+            // Sử dụng setTimeout để đảm bảo event không bubble lên dialog
+            setTimeout(() => {
+              setEnlargedImage(null);
+            }, 0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              e.nativeEvent.stopImmediatePropagation();
+              setTimeout(() => {
+                setEnlargedImage(null);
+              }, 0);
+            }
+          }}
+          style={{ zIndex: 99999 }}
+        >
+          {/* Close button */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.nativeEvent.stopImmediatePropagation();
+              // Sử dụng setTimeout để đảm bảo event không bubble lên dialog
+              setTimeout(() => {
+                setEnlargedImage(null);
+              }, 0);
+            }}
+            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors z-10 bg-black/50 hover:bg-black/70 rounded-full p-3"
+            aria-label="Đóng"
+          >
+            <XCircle className="w-8 h-8" />
+          </button>
+
+          {/* Image */}
+          <div
+            className="relative max-w-full max-h-[90vh] w-auto h-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={enlargedImage}
+              alt="Ảnh xác minh phóng to"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl bg-white"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = "/file.svg";
+              }}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
