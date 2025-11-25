@@ -1,5 +1,5 @@
 import api from "../customizeAPI";
-import type { ApiResponse } from "@iService";
+import type { ApiResponse, PaginatedResponse } from "@iService";
 
 export interface LoyaltyPointTransaction {
   _id: string;
@@ -29,18 +29,27 @@ export interface LoyaltyStats {
   totalSpent: number;
 }
 
-const parseResponse = async (response: Response): Promise<ApiResponse<any>> => {
+// Helper: parse response đúng kiểu
+const parseResponse = async <T,>(response: Response): Promise<T> => {
   const contentType = response.headers.get("content-type");
-  const data = contentType?.includes("application/json")
+  const raw = contentType?.includes("application/json")
     ? await response.json()
     : await response.text();
 
-  return {
+  const result: any = {
     code: response.status,
-    message: data?.message || "Request completed",
-    data: data?.data || data,
-    pagination: data?.pagination,
+    message: raw?.message || "Request completed",
   };
+
+  if ("data" in raw) {
+    result.data = raw.data;
+  }
+  if ("items" in raw && "meta" in raw) {
+    result.items = raw.items;
+    result.meta = raw.meta;
+  }
+
+  return result as T;
 };
 
 /**
@@ -48,18 +57,22 @@ const parseResponse = async (response: Response): Promise<ApiResponse<any>> => {
  */
 export const getLoyaltyStats = async (): Promise<ApiResponse<LoyaltyStats>> => {
   const response = await api.get("/loyalty/stats");
-  return await parseResponse(response);
+  return await parseResponse<ApiResponse<LoyaltyStats>>(response);
 };
 
 /**
- * Lấy lịch sử RT Points của user
+ * Lấy lịch sử RT Points của user (có phân trang)
  */
 export const getLoyaltyHistory = async (
   page: number = 1,
   limit: number = 20
-): Promise<ApiResponse<LoyaltyPointTransaction[]>> => {
-  const response = await api.get(`/loyalty/history?page=${page}&limit=${limit}`);
-  return await parseResponse(response);
+): Promise<PaginatedResponse<LoyaltyPointTransaction>> => {
+  const response = await api.get(
+    `/loyalty/history?page=${page}&limit=${limit}`
+  );
+  return await parseResponse<PaginatedResponse<LoyaltyPointTransaction>>(
+    response
+  );
 };
 
 /**
@@ -92,6 +105,5 @@ export const convertPointsToDiscount = async (
   points: number
 ): Promise<ApiResponse<ConvertToDiscountResponse>> => {
   const response = await api.post("/loyalty/convert-to-discount", { points });
-  return await parseResponse(response);
+  return await parseResponse<ApiResponse<ConvertToDiscountResponse>>(response);
 };
-
