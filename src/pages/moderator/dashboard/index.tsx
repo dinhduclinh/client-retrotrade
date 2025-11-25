@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react"; // ← THÊM useEffect
 import { ModeratorSidebar } from "@/components/ui/moderator/moderator-sidebar";
 import { ModeratorHeader } from "@/components/ui/moderator/moderator-header";
 import { ModeratorStats } from "@/components/ui/moderator/moderator-stats";
-import { UserManagementTable } from "@/components/ui/moderator/user-management-table";
-import { RequestManagementTable } from "@/components/ui/moderator/request-management-table";
+import { ModeratorUserManagementTable as UserManagementTable } from "@/components/ui/moderator/user-management-table";
+import { RequestManagementTable } from "@/components/ui/moderator/ownerRequest/request-managemment-table";
 import { VerificationQueue } from "@/components/ui/moderator/verify/verification-queue";
 import { BlogManagementTable } from "@/components/ui/moderator/blog/blog-management-table";
 import { CategoryManagementTable } from "@/components/ui/moderator/blog/category-management-table";
 import { CommentManagementTable } from "@/components/ui/moderator/blog/comment-management-table";
+import { getAllUsers } from "@/services/auth/user.api"; // ← THÊM IMPORT NÀY
 import {
   Card,
   CardContent,
@@ -26,10 +27,16 @@ import {
   Activity,
 } from "lucide-react";
 
+// ĐỔI TÊN TAB CHO ĐÚNG VỚI SIDEBAR
+type ModeratorTab =
+  | "dashboard"
+  | "userManagement" // ← ĐỔI TỪ "users" → "userManagement"
+  | "requests"
+  | "verification"
+  | "blog";
+
 export default function ModeratorDashboard() {
-  const [activeTab, setActiveTab] = useState<
-    "dashboard" | "users" | "requests" | "verification" | "blog"
-  >("dashboard");
+  const [activeTab, setActiveTab] = useState<ModeratorTab>("dashboard");
   const [activeBlogTab, setActiveBlogTab] = useState<
     "posts" | "categories" | "comments" | "tags"
   >("posts");
@@ -58,7 +65,7 @@ export default function ModeratorDashboard() {
     switch (activeTab) {
       case "dashboard":
         return <DashboardOverview />;
-      case "users":
+      case "userManagement": // ← ĐỔI TỪ "users"
         return <UserManagementTable />;
       case "requests":
         return <RequestManagementTable />;
@@ -86,7 +93,7 @@ export default function ModeratorDashboard() {
     switch (activeTab) {
       case "dashboard":
         return "Dashboard Tổng quan";
-      case "users":
+      case "userManagement": // ← ĐỔI TỪ "users"
         return "Quản lý người dùng";
       case "requests":
         return "Yêu cầu kiểm duyệt";
@@ -99,6 +106,7 @@ export default function ModeratorDashboard() {
 
   const getPageDescription = () => {
     if (activeTab === "blog") {
+      // ... giữ nguyên
       switch (activeBlogTab) {
         case "posts":
           return "Tạo, chỉnh sửa và quản lý các bài viết trong hệ thống";
@@ -114,7 +122,7 @@ export default function ModeratorDashboard() {
     switch (activeTab) {
       case "dashboard":
         return "Tổng quan về hoạt động và thống kê hệ thống";
-      case "users":
+      case "userManagement": // ← ĐỔI TỪ "users"
         return "Theo dõi và quản lý tài khoản người dùng trong hệ thống";
       case "requests":
         return "Duyệt và phê duyệt các yêu cầu từ người dùng";
@@ -127,7 +135,7 @@ export default function ModeratorDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
-      {/* Animated background */}
+      {/* Background animation giữ nguyên */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(120,119,198,0.3),rgba(255,255,255,0))] animate-pulse" />
       <div className="absolute top-0 -left-4 w-96 h-96 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob" />
       <div className="absolute top-0 -right-4 w-96 h-96 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000" />
@@ -137,7 +145,18 @@ export default function ModeratorDashboard() {
         <ModeratorSidebar
           activeTab={activeTab}
           activeBlogTab={activeBlogTab}
-          onTabChange={setActiveTab}
+          onTabChange={(tab) => {
+            const validTabs: ModeratorTab[] = [
+              "dashboard",
+              "userManagement",
+              "requests",
+              "verification",
+              "blog",
+            ];
+            if (validTabs.includes(tab as any)) {
+              setActiveTab(tab as ModeratorTab);
+            }
+          }}
           onBlogTabChange={handleBlogTabChange}
         />
 
@@ -179,36 +198,18 @@ function DashboardOverview() {
   const fetchDashboardStats = async () => {
     try {
       setLoading(true);
-      const response = await getAllUsers(1, 1); // Just get count
+      const response = await getAllUsers(1, 1);
       if (response && response.code === 200) {
         const totalUsers = response.data?.totalItems || 0;
-        // For now, we'll use mock data for other stats
-        // In a real app, you'd have separate APIs for these
         setStats({
           totalUsers,
-          verifiedUsers: Math.floor(totalUsers * 0.8), // Mock: 80% verified
-          pendingUsers: Math.floor(totalUsers * 0.1), // Mock: 10% pending
-          totalPosts: Math.floor(totalUsers * 2.5), // Mock: 2.5 posts per user
-        });
-      } else {
-        console.error("API Error:", response);
-        // Set default values if API fails
-        setStats({
-          totalUsers: 0,
-          verifiedUsers: 0,
-          pendingUsers: 0,
-          totalPosts: 0,
+          verifiedUsers: Math.floor(totalUsers * 0.8),
+          pendingUsers: Math.floor(totalUsers * 0.1),
+          totalPosts: Math.floor(totalUsers * 2.5),
         });
       }
     } catch (error) {
       console.error("Error fetching dashboard stats:", error);
-      // Set default values if API fails
-      setStats({
-        totalUsers: 0,
-        verifiedUsers: 0,
-        pendingUsers: 0,
-        totalPosts: 0,
-      });
     } finally {
       setLoading(false);
     }
