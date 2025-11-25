@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@heroicons/react": "^2.2.0",
     "@radix-ui/react-avatar": "^1.1.10",
     "@radix-ui/react-dialog": "^1.1.10",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -19,6 +20,7 @@
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@reduxjs/toolkit": "^2.9.0",
+    "@types/recharts": "^1.8.29",
     "axios": "^1.12.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -45,7 +47,8 @@
     "styled-components": "^6.1.19",
     "swiper": "^12.0.3",
     "tailwind-merge": "^3.3.1",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "vn-num2words": "^1.0.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -53,7 +56,6 @@
     "@types/node": "^20",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
-    "@types/recharts": "^1.8.29",
     "@types/three": "^0.180.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
