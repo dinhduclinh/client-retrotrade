@@ -10,7 +10,6 @@ import { CategoryManagementTable } from "@/components/ui/moderator/blog/category
 import { CommentManagementTable } from "@/components/ui/moderator/blog/comment-management-table";
 
 export default function RequestManagementDashboard() {
-  // Đã mở rộng kiểu để bao gồm tất cả các tab mà ModeratorSidebar hỗ trợ
   const [activeTab, setActiveTab] = useState<
     | "dashboard"
     | "requests"
@@ -43,28 +42,11 @@ export default function RequestManagementDashboard() {
           return <CategoryManagementTable />;
         case "comments":
           return <CommentManagementTable />;
-        case "tags":
-          return <div className="text-gray-500">Quản lý Tags (sắp ra mắt)</div>;
         default:
           return <BlogManagementTable />;
       }
     }
-
-    // Các tab khác tạm thời chỉ hiển thị OwnerRequestManagement
-    // (Bạn có thể mở rộng sau khi tạo component tương ứng)
-    switch (activeTab) {
-      case "requests":
-      case "productManagement":
-      case "verification":
-      case "dashboard":
-      case "messages":
-      case "userManagement":
-      case "dispute":
-      case "complaints":
-        return <OwnerRequestManagement />;
-      default:
-        return <OwnerRequestManagement />;
-    }
+    return <OwnerRequestManagement />;
   };
 
   const getPageTitle = () => {
@@ -76,26 +58,11 @@ export default function RequestManagementDashboard() {
           return "Quản lý danh mục";
         case "comments":
           return "Quản lý bình luận";
-        case "tags":
-          return "Quản lý thẻ (Tags)";
         default:
           return "Quản lý bài viết";
       }
     }
-
-    const titles: Record<typeof activeTab, string> = {
-      dashboard: "Tổng quan Moderator",
-      requests: "Yêu cầu kiểm duyệt",
-      verification: "Xác minh tài khoản",
-      productManagement: "Quản lý sản phẩm",
-      messages: "Tin nhắn người dùng",
-      userManagement: "Quản lý người dùng",
-      dispute: "Xử lý tranh chấp",
-      complaints: "Khiếu nại & Báo cáo",
-      blog: "Quản lý Blog",
-    };
-
-    return titles[activeTab] || "Yêu cầu kiểm duyệt";
+    return "Yêu cầu kiểm duyệt";
   };
 
   const getPageDescription = () => {
@@ -107,28 +74,11 @@ export default function RequestManagementDashboard() {
           return "Quản lý các danh mục và phân loại bài viết";
         case "comments":
           return "Kiểm duyệt và quản lý bình luận từ người dùng";
-        case "tags":
-          return "Quản lý thẻ tag để phân loại nội dung";
         default:
           return "Tạo, chỉnh sửa và quản lý các bài viết trong hệ thống";
       }
     }
-
-    const descriptions: Record<typeof activeTab, string> = {
-      dashboard: "Theo dõi hoạt động và thống kê tổng quan",
-      requests: "Duyệt và phê duyệt các yêu cầu từ người dùng",
-      verification: "Xác minh thông tin KYC của người dùng",
-      productManagement: "Quản lý sản phẩm chờ duyệt và sản phẩm vi phạm",
-      messages: "Xem và xử lý tin nhắn giữa người dùng",
-      userManagement: "Quản lý tài khoản người dùng (Renter/Owner)",
-      dispute: "Giải quyết tranh chấp giữa Renter và Owner",
-      complaints: "Tiếp nhận và xử lý khiếu nại, báo cáo vi phạm",
-      blog: "Quản lý nội dung blog và cộng đồng",
-    };
-
-    return (
-      descriptions[activeTab] || "Duyệt và phê duyệt các yêu cầu từ người dùng"
-    );
+    return "Duyệt và phê duyệt các yêu cầu từ người dùng";
   };
 
   return (
@@ -151,6 +101,8 @@ export default function RequestManagementDashboard() {
               </h2>
               <p className="text-gray-600">{getPageDescription()}</p>
             </div>
+
+            {/* Stats only on dashboard */}
 
             <div className="mt-8">{renderContent()}</div>
           </main>
