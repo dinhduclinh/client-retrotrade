@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
+import { listOrders } from "@/services/auth/order.api";
 import {
   getRatingsByItem,
   createRating,
@@ -10,7 +11,7 @@ import {
 import { Star } from "lucide-react";
 import { useSelector } from "react-redux";
 import { RootState } from "@/store/redux_store";
-import {jwtDecode} from "jwt-decode";
+import { jwtDecode } from "jwt-decode";
 import { toast } from "sonner";
 
 interface Rating {
@@ -26,14 +27,9 @@ interface Rating {
 
 interface Order {
   _id: string;
-  itemId: string;
+  itemId: string | { _id: string };
   renterId: { _id: string; fullName: string };
   orderStatus: string;
-}
-
-interface Props {
-  itemId: string;
-  orders: Order[];
 }
 
 interface JwtPayload {
@@ -46,7 +42,15 @@ interface JwtPayload {
   iat: number;
 }
 
-const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
+interface Props {
+  itemId: string;
+  orders?: Order[]; // Truyền từ trang chi tiết sản phẩm → tối ưu, không gọi API thừa
+}
+
+const RatingSection: React.FC<Props> = ({
+  itemId,
+  orders: propOrders = [],
+}) => {
   const accessToken = useSelector((state: RootState) => state.auth.accessToken);
   const [currentUser, setCurrentUser] = useState<JwtPayload | null>(null);
   const [ratings, setRatings] = useState<Rating[]>([]);
@@ -62,7 +66,6 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-
   // Decode token
   useEffect(() => {
     if (accessToken) {
@@ -74,6 +77,19 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
       }
     }
   }, [accessToken]);
+
+  // Normalize orders từ props (truyền từ trang chi tiết)
+  const normalizedOrders = useMemo(() => {
+    if (!propOrders || propOrders.length === 0) return [];
+
+    return propOrders.map((o: any) => ({
+      ...o,
+      itemId:
+        typeof o.itemId === "object" ? o.itemId._id || o.itemId : o.itemId,
+      renterId: o.renterId || { _id: "", fullName: "" },
+      orderStatus: o.orderStatus || "",
+    }));
+  }, [propOrders]);
 
   // Fetch ratings
   const fetchRatings = async () => {
@@ -93,39 +109,39 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
     fetchRatings();
   }, [itemId]);
 
-  // Check if user can review
+  // Kiểm tra người dùng có thể đánh giá không
   const canReview = useMemo(() => {
-    if (!currentUser) return false;
+    if (!currentUser || normalizedOrders.length === 0) return false;
 
-    const eligibleOrder = orders.find(
+    const eligibleOrder = normalizedOrders.find(
       (order) =>
         order.itemId === itemId &&
         order.orderStatus.toLowerCase() === "completed" &&
-        order.renterId._id.toString() === currentUser._id.toString()
+        order.renterId._id === currentUser._id
     );
 
     if (!eligibleOrder) return false;
 
     const hasRated = ratings.some(
-      (r) =>
-        r.itemId === itemId &&
-        r.renterId._id.toString() === currentUser._id.toString()
+      (r) => r.itemId === itemId && r.renterId._id === currentUser._id
     );
 
     return !hasRated;
-  }, [orders, ratings, itemId, currentUser]);
+  }, [normalizedOrders, ratings, itemId, currentUser]);
 
+  // Lấy orderId để gửi khi tạo đánh giá
   const reviewableOrderId = useMemo(() => {
     if (!currentUser) return null;
-    const order = orders.find(
+    const order = normalizedOrders.find(
       (o) =>
         o.itemId === itemId &&
-        o.orderStatus === "completed" &&
+        o.orderStatus.toLowerCase() === "completed" &&
         o.renterId._id === currentUser._id
     );
     return order?._id || null;
-  }, [orders, itemId, currentUser]);
+  }, [normalizedOrders, itemId, currentUser]);
 
+  // Filter theo số sao
   const handleFilter = (star: number | null) => {
     setFilterStar(star);
     if (star === null) {
@@ -135,10 +151,10 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
     }
   };
 
-  // Submit rating (create/update)
+  // Submit (tạo hoặc sửa đánh giá)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !reviewableOrderId) return;
 
     if (!canReview && !editingRatingId) {
       toast.error("Bạn không đủ điều kiện để đánh giá sản phẩm này.");
@@ -148,9 +164,7 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
     try {
       setLoading(true);
       const formData = new FormData();
-      if (!editingRatingId && reviewableOrderId) {
-        formData.append("orderId", reviewableOrderId);
-      }
+      if (!editingRatingId) formData.append("orderId", reviewableOrderId);
       formData.append("itemId", itemId);
       formData.append("renterId", currentUser._id);
       formData.append("rating", rating.toString());
@@ -169,46 +183,39 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
         toast.success("Đánh giá thành công!");
       }
 
-      // Refresh ratings
       await fetchRatings();
-
-      // Reset form
       setComment("");
       setImages(null);
       setRating(5);
       setEditingRatingId(null);
-    } catch (err: unknown) {
-      console.error("Error submitting rating:", err);
-      toast.error((err as Error)?.message || "Có lỗi xảy ra");
+    } catch (err: any) {
+      toast.error(err?.message || "Có lỗi xảy ra");
     } finally {
       setLoading(false);
     }
   };
 
-  // Delete rating
   const handleDeleteRating = async (ratingId: string) => {
-    if (!currentUser) return;
-
     try {
-      await deleteRating(ratingId, currentUser._id);
+      await deleteRating(ratingId, currentUser!._id);
       toast.success("Xóa đánh giá thành công!");
-      setActiveDropdown(null);
       fetchRatings();
-    } catch (err: unknown) {
-      toast.error((err as Error).message || "Xóa đánh giá thất bại");
+    } catch (err: any) {
+      toast.error(err?.message || "Xóa thất bại");
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
-  // Edit rating
   const handleEditRating = (r: Rating) => {
     setEditingRatingId(r._id);
     setRating(r.rating);
     setComment(r.comment);
-    setImages(null); // Optionally: set images if supporting editing
+    setImages(null);
     setActiveDropdown(null);
   };
 
-  // Average rating
+  // Tính trung bình sao
   const averageRating =
     ratings.length > 0
       ? (
@@ -221,50 +228,51 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
   );
 
   return (
-    <div className="mt-6 border-t pt-4">
-      <h2 className="text-xl font-semibold mb-4">Đánh giá sản phẩm</h2>
+    <div className="mt-6 border-t pt-6">
+      <h2 className="text-2xl font-bold mb-6">Đánh giá sản phẩm</h2>
 
-      {/* Tổng quan */}
-      <div className="bg-white border rounded-lg p-4 mb-4 flex flex-col md:flex-row md:items-center md:justify-between">
+      {/* Tổng quan đánh giá */}
+      <div className="bg-white border rounded-xl p-6 mb-6 flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="text-center md:text-left">
-          <p className="text-4xl font-bold text-yellow-500">{averageRating}</p>
-          <div className="flex justify-center md:justify-start mt-1">
-            {Array.from({ length: 5 }).map((_, i) => (
+          <p className="text-5xl font-bold text-yellow-500">{averageRating}</p>
+          <div className="flex justify-center md:justify-start mt-2">
+            {[...Array(5)].map((_, i) => (
               <Star
                 key={i}
-                size={18}
+                size={24}
                 className={
-                  i < Math.round(Number(averageRating))
+                  i < Math.round(+averageRating)
                     ? "fill-yellow-400 text-yellow-400"
                     : "text-gray-300"
                 }
               />
             ))}
           </div>
-          <p className="text-gray-500 text-sm mt-1">
-            {ratings.length} lượt đánh giá
-          </p>
+          <p className="text-gray-600 mt-2">{ratings.length} đánh giá</p>
         </div>
 
-        <div className="flex flex-wrap justify-center md:justify-end gap-2 mt-3 md:mt-0">
+        <div className="flex flex-wrap gap-2 justify-center">
           <button
             onClick={() => handleFilter(null)}
-            className={`px-3 py-1 border rounded-md text-sm ${
-              filterStar === null ? "bg-green-600 text-white" : ""
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              filterStar === null
+                ? "bg-green-600 text-white"
+                : "bg-gray-100 hover:bg-gray-200"
             }`}
           >
             Tất cả ({ratings.length})
           </button>
           {[5, 4, 3, 2, 1].map((star, i) => (
             <button
-              key={i}
+              key={star}
               onClick={() => handleFilter(star)}
-              className={`px-3 py-1 border rounded-md text-sm flex items-center gap-1 ${
-                filterStar === star ? "bg-yellow-500 text-white" : ""
+              className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 transition ${
+                filterStar === star
+                  ? "bg-yellow-500 text-white"
+                  : "bg-gray-100 hover:bg-gray-200"
               }`}
             >
-              {star}{" "}
-              <Star size={14} className="text-yellow-400 fill-yellow-400" /> (
+              {star} <Star size={16} className="fill-current" /> (
               {countByStar[i]})
             </button>
           ))}
@@ -273,7 +281,7 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
 
       {/* Danh sách đánh giá */}
       {filteredRatings.length === 0 ? (
-        <p className="text-gray-500">Chưa có đánh giá nào.</p>
+        <p className="text-gray-500 text-center py-8">Chưa có đánh giá nào.</p>
       ) : (
         <div className="space-y-4">
           {filteredRatings.map((r) => {
@@ -282,45 +290,49 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
             return (
               <div
                 key={r._id}
-                className="border rounded-lg p-3 bg-white shadow-sm relative"
+                className="bg-white border rounded-xl p-5 shadow-sm relative"
               >
-                <div className="flex items-center gap-2 justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
                     <img
                       src={r.renterId?.avatarUrl || "/user.png"}
-                      alt=""
-                      className="w-8 h-8 rounded-full object-cover"
+                      alt={r.renterId.fullName}
+                      className="w-10 h-10 rounded-full object-cover"
                     />
-                    <span className="font-medium">{r.renterId?.fullName}</span>
+                    <div>
+                      <p className="font-semibold">{r.renterId.fullName}</p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(r.createdAt).toLocaleDateString("vi-VN")}
+                      </p>
+                    </div>
                   </div>
 
                   {isOwner && (
                     <div className="relative">
                       <button
-                        className="p-1 hover:bg-gray-200 rounded-full"
                         onClick={() =>
                           setActiveDropdown(
-                            r._id === activeDropdown ? null : r._id
+                            activeDropdown === r._id ? null : r._id
                           )
                         }
+                        className="p-2 hover:bg-gray-100 rounded-full transition"
                       >
                         ⋮
                       </button>
-
                       {activeDropdown === r._id && (
-                        <div className="absolute right-0 mt-1 w-28 bg-white border rounded shadow-md z-10">
+                        <div className="absolute right-0 mt-1 w-32 bg-white border rounded-lg shadow-lg z-10">
                           <button
-                            className="w-full text-left px-3 py-1 hover:bg-gray-100"
                             onClick={() => handleEditRating(r)}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
                           >
                             Sửa
                           </button>
                           <button
-                            className="w-full text-left px-3 py-1 text-red-600 hover:bg-gray-100"
                             onClick={() => {
+                              setDelete: setDeleteConfirmId(r._id);
                               setActiveDropdown(null);
-                              setDeleteConfirmId(r._id); // mở modal
                             }}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm text-red-600"
                           >
                             Xóa
                           </button>
@@ -330,11 +342,11 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
                   )}
                 </div>
 
-                <div className="flex items-center mt-1">
-                  {Array.from({ length: 5 }).map((_, i) => (
+                <div className="flex gap-1 mt-3">
+                  {[...Array(5)].map((_, i) => (
                     <Star
                       key={i}
-                      size={16}
+                      size={18}
                       className={
                         i < r.rating
                           ? "fill-yellow-400 text-yellow-400"
@@ -343,22 +355,21 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
                     />
                   ))}
                 </div>
-                <p className="text-gray-700 mt-2">{r.comment}</p>
+
+                <p className="mt-3 text-gray-700">{r.comment}</p>
+
                 {r.images && r.images.length > 0 && (
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex flex-wrap gap-2 mt-3">
                     {r.images.map((img, i) => (
                       <img
                         key={i}
                         src={img}
-                        alt=""
-                        className="w-20 h-20 object-cover rounded-md"
+                        alt="Review"
+                        className="w-24 h-24 object-cover rounded-lg border"
                       />
                     ))}
                   </div>
                 )}
-                <small className="text-gray-400 block mt-1">
-                  {new Date(r.createdAt).toLocaleString("vi-VN")}
-                </small>
               </div>
             );
           })}
@@ -367,51 +378,57 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
 
       {/* Form đánh giá */}
       {(canReview || editingRatingId) && currentUser && (
-        <form onSubmit={handleSubmit} className="mt-6 border-t pt-4">
-          <h3 className="font-semibold mb-2">
-            {editingRatingId ? "Chỉnh sửa đánh giá" : "Viết đánh giá của bạn"}
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 bg-white border rounded-xl p-6"
+        >
+          <h3 className="text-lg font-semibold mb-4">
+            {editingRatingId ? "Chỉnh sửa đánh giá của bạn" : "Viết đánh giá"}
           </h3>
-          <div className="flex items-center gap-1 mb-3">
-            {Array.from({ length: 5 }).map((_, i) => (
+
+          <div className="flex gap-2 mb-4">
+            {[1, 2, 3, 4, 5].map((star) => (
               <Star
-                key={i}
-                size={20}
-                onClick={() => setRating(i + 1)}
-                className={`cursor-pointer ${
-                  i < rating
+                key={star}
+                size={32}
+                onClick={() => setRating(star)}
+                className={`cursor-pointer transition ${
+                  star <= rating
                     ? "fill-yellow-400 text-yellow-400"
                     : "text-gray-300"
                 }`}
               />
             ))}
           </div>
+
           <textarea
-            className="w-full border rounded-md p-2 focus:outline-none"
-            rows={3}
-            placeholder="Chia sẻ trải nghiệm của bạn..."
+            className="w-full border rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-green-500"
+            rows={4}
+            placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm này..."
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             required
           />
+
           <input
             type="file"
             multiple
             accept="image/*"
-            className="mt-2 block"
+            className="mt-3 block text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 5) {
-                toast.error("Bạn chỉ có thể đăng tối đa 5 ảnh.");
+                toast.error("Chỉ được tải tối đa 5 ảnh");
                 e.target.value = "";
-                setImages(null);
               } else {
                 setImages(e.target.files);
               }
             }}
           />
+
           <button
             type="submit"
             disabled={loading}
-            className="mt-3 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-60"
+            className="mt-4 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-60 transition font-medium"
           >
             {loading
               ? "Đang gửi..."
@@ -422,42 +439,24 @@ const RatingSection: React.FC<Props> = ({ itemId, orders }) => {
         </form>
       )}
 
-      {/* {!canReview && !editingRatingId && currentUser && (
-        <p className="mt-4 text-sm text-gray-500">
-          Bạn chỉ có thể đánh giá sản phẩm sau khi hoàn thành đơn hàng và chưa
-          từng đánh giá trước đó.
-        </p>
-      )} */}
+      {/* Modal xác nhận xóa */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* Backdrop kính mờ */}
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setDeleteConfirmId(null)}
-          />
-
-          {/* Modal */}
-          <div className="relative bg-white/80 backdrop-blur-md rounded-lg shadow-lg p-5 w-80 animate-fadeIn z-10">
-            <h2 className="text-lg font-semibold">Xác nhận xoá</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl p-6 w-96 shadow-xl">
+            <h3 className="text-lg font-semibold">Xác nhận xóa đánh giá?</h3>
             <p className="text-gray-600 mt-2">
-              Bạn có chắc chắn muốn xoá đánh giá này không? Hành động này không
-              thể hoàn tác.
+              Hành động này không thể hoàn tác.
             </p>
-
-            <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-3 mt-6">
               <button
-                className="px-3 py-1 rounded border"
                 onClick={() => setDeleteConfirmId(null)}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
               >
                 Hủy
               </button>
-
               <button
-                className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
-                onClick={async () => {
-                  await handleDeleteRating(deleteConfirmId);
-                  setDeleteConfirmId(null);
-                }}
+                onClick={() => handleDeleteRating(deleteConfirmId)}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
               >
                 Xóa
               </button>
