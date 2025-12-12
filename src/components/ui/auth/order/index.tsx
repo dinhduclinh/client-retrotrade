@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useSelector } from "react-redux";
 import { decodeToken } from "@/utils/jwtHelper";
 import {
-  listOrders,
+  listOrdersByRenter,
   renterReturn,
   cancelOrder,
   receiveOrder,
 } from "@/services/auth/order.api";
+import {
+  getExtensionRequests,
+  type ExtensionRequest,
+} from "@/services/auth/extension.api";
 import type { Order } from "@/services/auth/order.api";
 import { RootState } from "@/store/redux_store";
 import { Button } from "@/components/ui/common/button";
@@ -43,14 +48,19 @@ import {
   ShoppingBag,
   Filter,
   Eye,
-  User,
   ChevronRight,
   ChevronLeft,
   AlertCircle,
   X,
+  ClipboardList,
+  Clock,
+  Eye as EyeIcon,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { createDispute } from "@/services/moderator/disputeOrder.api";
+import ExtensionModal from "@/components/ui/auth/order/ExtensionModal";
+import ExtensionRequestsModal from "@/components/ui/auth/order/ExtensionRequestsModal";
 
 export default function OrderListPage({
   onOpenDetail,
@@ -74,6 +84,22 @@ export default function OrderListPage({
   const [disputeDescription, setDisputeDescription] = useState("");
   const [disputeEvidence, setDisputeEvidence] = useState<File[]>([]);
   const [evidencePreview, setEvidencePreview] = useState<string[]>([]);
+  const [openExtensionModal, setOpenExtensionModal] = useState(false);
+  const [selectedExtensionOrder, setSelectedExtensionOrder] =
+    useState<Order | null>(null);
+  const [openExtensionRequestsModal, setOpenExtensionRequestsModal] =
+    useState(false);
+  const [
+    selectedExtensionOrderForDetails,
+    setSelectedExtensionOrderForDetails,
+  ] = useState<Order | null>(null);
+  const [extensionsByOrder, setExtensionsByOrder] = useState<
+    Record<string, ExtensionRequest[] | undefined>
+  >({});
+  const [extensionsLoading, setExtensionsLoading] = useState<
+    Record<string, boolean>
+  >({});
+  const [loadedOrderIds, setLoadedOrderIds] = useState<Set<string>>(new Set());
 
   const accessToken = useSelector((state: RootState) => state.auth.accessToken);
 
@@ -134,11 +160,42 @@ export default function OrderListPage({
     setEvidencePreview([]);
   };
 
+  const handleOpenExtensionDetails = (order: Order) => {
+    setSelectedExtensionOrderForDetails(order);
+    setOpenExtensionRequestsModal(true);
+  };
+
+  useEffect(() => {
+    if (orders.length > 0) {
+      const progressOrders = orders.filter(
+        (o) => o.orderStatus === "progress" && !loadedOrderIds.has(o._id!)
+      );
+      progressOrders.forEach(async (order) => {
+        const orderId = order._id!;
+        setExtensionsLoading((prev) => ({ ...prev, [orderId]: true }));
+
+        try {
+          const res = await getExtensionRequests(orderId);
+          const data =
+            res.code === 200 && Array.isArray(res.data) ? res.data : [];
+          setExtensionsByOrder((prev) => ({ ...prev, [orderId]: data }));
+        } catch (err) {
+          console.error(`Error fetching extensions for order ${orderId}:`, err);
+          toast.error("Không thể kiểm tra yêu cầu gia hạn cho một số đơn hàng");
+          setExtensionsByOrder((prev) => ({ ...prev, [orderId]: [] }));
+        } finally {
+          setExtensionsLoading((prev) => ({ ...prev, [orderId]: false }));
+          setLoadedOrderIds((prev) => new Set([...prev, orderId]));
+        }
+      });
+    }
+  }, [orders]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const fetchOrders = async () => {
       try {
         setLoading(true);
-        const res = await listOrders();
+        const res = await listOrdersByRenter();
         if (res.code === 200 && Array.isArray(res.data)) {
           setOrders(res.data);
         }
@@ -236,6 +293,23 @@ export default function OrderListPage({
       setSelectedOrder(null);
       setOpenConfirm(false);
     }
+  };
+
+  const handleExtensionSuccess = () => {
+    if (selectedExtensionOrder?._id) {
+      // Refresh extensions sau khi success
+      getExtensionRequests(selectedExtensionOrder._id).then((res) => {
+        if (res.code === 200 && Array.isArray(res.data)) {
+          setExtensionsByOrder((prev) => ({
+            ...prev,
+            [selectedExtensionOrder._id]: res.data,
+          }));
+        }
+      });
+      toast.success("Yêu cầu gia hạn đã được gửi thành công!");
+    }
+    setOpenExtensionModal(false);
+    setSelectedExtensionOrder(null);
   };
 
   const formatDateTime = (date: string) =>
@@ -490,22 +564,147 @@ export default function OrderListPage({
                 const isRenter =
                   userRole === "renter" ||
                   order.renterId?._id?.toString() === userId?.toString();
-                const canReturn =
-                  isRenter &&
-                  order.orderStatus === "progress" &&
-                  order.renterId?._id?.toString() === userId?.toString();
+
+                const isCurrentUserTheRenter =
+                  String(order.renterId) === String(userId);
+
+                const canShowReturnButton =
+                  order.orderStatus === "progress" && isCurrentUserTheRenter;
+
+                // Lấy extensions cho order này
+                const extensions = extensionsByOrder[order._id || ""] || [];
+                const isExtensionsLoading =
+                  extensionsLoading[order._id || ""] ?? false;
+
+                // Lấy yêu cầu mới nhất (API trả về đã sort createdAt DESC)
+                const latestExtension = extensions[0];
+
+                // Xác định hiển thị trạng thái gia hạn
+                let extensionDisplay: React.ReactNode = null;
+
+                if (isExtensionsLoading) {
+                  extensionDisplay = (
+                    <div className="flex items-center gap-2 bg-gray-50 text-gray-600 px-3 py-2 rounded-lg text-sm font-medium border border-gray-200">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang kiểm tra gia hạn...
+                    </div>
+                  );
+                }
+                // 1. Đã duyệt → ưu tiên cao nhất
+                else if (latestExtension?.status === "approved") {
+                  extensionDisplay = (
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-green-50 text-green-700 border-green-200">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" />
+                        Đã gia hạn
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenExtensionDetails(order);
+                        }}
+                      >
+                        <EyeIcon className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  );
+                }
+                // 2. Đang chờ duyệt
+                else if (latestExtension?.status === "pending") {
+                  extensionDisplay = (
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-indigo-50 text-indigo-700 border-indigo-200">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4" />
+                        Đang chờ duyệt gia hạn
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenExtensionDetails(order);
+                        }}
+                      >
+                        <EyeIcon className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  );
+                }
+                // 3. Bị từ chối
+                else if (latestExtension?.status === "rejected") {
+                  extensionDisplay = (
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-50 text-red-700 border-red-200">
+                      <div className="flex items-center gap-2">
+                        <XCircle className="w-4 h-4" />
+                        Yêu cầu gia hạn bị từ chối
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenExtensionDetails(order);
+                          }}
+                        >
+                          <EyeIcon className="w-3 h-3" />
+                        </Button>
+                        {/* <Button
+                          size="sm"
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-3"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedExtensionOrder(order);
+                            setOpenExtensionModal(true);
+                          }}
+                        >
+                          Gia hạn lại
+                        </Button> */}
+                      </div>
+                    </div>
+                  );
+                }
+                // 4. Chưa có yêu cầu nào → hiện nút Gia hạn
+                else {
+                  extensionDisplay = (
+                    <Button
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2 h-10 px-4 text-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedExtensionOrder(order);
+                        setOpenExtensionModal(true);
+                      }}
+                      disabled={processing === order._id}
+                    >
+                      <Clock className="w-4 h-4" />
+                      Gia hạn
+                    </Button>
+                  );
+                }
 
                 return (
                   <div
                     key={order._id}
                     className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-300"
                   >
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="flex items-center gap-2 text-sm font-semibold text-blue-700">
+                        <ClipboardList className="w-4 h-4" />
+                        Mã đơn:
+                        <span className="font-mono">
+                          #{order.orderGuid.slice(0, 8).toUpperCase()}
+                        </span>
+                      </p>
+                    </div>
+
                     <div className="flex flex-col md:flex-row gap-6">
                       {/* Product Image */}
-                      <div className="bg-gray-200 border-2 border-dashed rounded-xl w-full md:w-32 h-32 flex-shrink-0 overflow-hidden">
+                      <div className="relative bg-gray-200 border-2 border-dashed rounded-xl w-full md:w-32 h-32 flex-shrink-0 overflow-hidden">
                         {order.itemSnapshot?.images?.[0] ||
                         order.itemId?.Images?.[0] ? (
-                          <img
+                          <Image
                             src={
                               order.itemSnapshot?.images?.[0] ||
                               order.itemId?.Images?.[0]
@@ -513,10 +712,11 @@ export default function OrderListPage({
                             alt={
                               order.itemSnapshot?.title || order.itemId?.Title
                             }
-                            className="w-full h-full object-cover"
+                            fill
+                            className="object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          <div className="absolute inset-0 flex items-center justify-center text-gray-400">
                             <Package className="w-14 h-14" />
                           </div>
                         )}
@@ -526,11 +726,13 @@ export default function OrderListPage({
                       <div className="flex-1 space-y-4">
                         {/* Product Name */}
                         <div>
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                            {order.itemSnapshot?.title ||
-                              order.itemId?.Title ||
-                              "Sản phẩm không xác định"}
-                          </h3>
+                          <Link href={`/products/details?id=${order.itemId._id}`}>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                              {order.itemSnapshot?.title ||
+                                order.itemId?.Title ||
+                                "Sản phẩm không xác định"}
+                            </h3>
+                          </Link>
                         </div>
 
                         {/* Order Status & Payment Status */}
@@ -586,29 +788,6 @@ export default function OrderListPage({
                           </div>
                         </div>
 
-                        {/* User Info */}
-                        <div className="grid md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
-                          <div className="flex items-start gap-3">
-                            <div className="p-2 bg-blue-100 rounded-lg">
-                              <User className="w-5 h-5 text-blue-600" />
-                            </div>
-                            <div>
-                              <p className="text-xs text-gray-500 mb-1">
-                                {isRenter ? "Người cho thuê" : "Người thuê"}
-                              </p>
-                              <p className="text-sm font-medium text-gray-800">
-                                {isRenter
-                                  ? order.ownerId?.fullName || "N/A"
-                                  : order.renterId?.fullName || "N/A"}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {isRenter
-                                  ? order.ownerId?.email
-                                  : order.renterId?.email}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
                         {/* Actions */}
                         <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-gray-200">
                           <div className="flex flex-wrap items-center gap-3">
@@ -654,7 +833,7 @@ export default function OrderListPage({
                             )}
 
                             {/* Nút Trả hàng (giữ nguyên) */}
-                            {canReturn && (
+                            {canShowReturnButton && (
                               <Button
                                 className="bg-teal-600 hover:bg-teal-700 text-white"
                                 onClick={(e) => {
@@ -670,13 +849,15 @@ export default function OrderListPage({
                                     Đang xử lý...
                                   </>
                                 ) : (
-                                  <>
-                                    <CheckCircle className="w-4 h-4 mr-2" />
-                                    Trả hàng
-                                  </>
+                                  <>Trả hàng</>
                                 )}
                               </Button>
                             )}
+
+                            {/* Hiển thị trạng thái gia hạn - ĐÃ SỬA */}
+                            {order.orderStatus === "progress" &&
+                              isCurrentUserTheRenter &&
+                              extensionDisplay}
 
                             {/* NÚT THANH TOÁN NGAY - CHỈ HIỆN KHI: ĐÃ XÁC NHẬN + CHƯA THANH TOÁN */}
                             {order.orderStatus === "confirmed" &&
@@ -686,7 +867,6 @@ export default function OrderListPage({
                                 <Button
                                   className="bg-red-600 hover:bg-red-700 text-white font-medium shadow-md"
                                   onClick={() => {
-                                    // Điều hướng đến trang thanh toán của đơn hàng
                                     window.location.href = `/auth/my-orders/${order._id}?tab=payment`;
                                   }}
                                 >
@@ -728,7 +908,7 @@ export default function OrderListPage({
                             )}
 
                             {isRenter &&
-                              ["delivery", "received", "returned",].includes(
+                              ["delivery", "received", "returned"].includes(
                                 order.orderStatus
                               ) &&
                               order.orderStatus !== "disputed" && (
@@ -746,7 +926,7 @@ export default function OrderListPage({
                                 </Button>
                               )}
 
-                            {/* Nếu đã Khiếu nạirồi thì hiện thông báo */}
+                            {/* Nếu đã Khiếu nại rồi thì hiện thông báo */}
                             {order.orderStatus === "disputed" && (
                               <div className="flex items-center gap-2 text-orange-700 bg-orange-50 px-4 py-2 rounded-lg text-sm font-medium">
                                 <AlertCircle className="w-4 h-4" />
@@ -942,7 +1122,7 @@ export default function OrderListPage({
             <DialogHeader className="pb-4 border-b">
               <DialogTitle className="flex items-center gap-3 text-xl font-bold text-orange-700">
                 <AlertCircle className="w-7 h-7" />
-                Tạo Khiếu nạiđơn hàng
+                Tạo Khiếu nại đơn hàng
               </DialogTitle>
             </DialogHeader>
 
@@ -1039,9 +1219,11 @@ export default function OrderListPage({
                         key={idx}
                         className="relative group rounded-lg overflow-hidden shadow-md"
                       >
-                        <img
+                        <Image
                           src={src}
                           alt={`Bằng chứng ${idx + 1}`}
+                          width={128}
+                          height={128}
                           className="w-full h-32 object-cover rounded-lg"
                         />
                         <button
@@ -1057,8 +1239,6 @@ export default function OrderListPage({
               </div>
             </div>
 
-            {/* End space-y-5 */}
-
             <DialogFooter className="mt-6 pt-4 border-t flex gap-3 flex-col sm:flex-row">
               <Button
                 variant="outline"
@@ -1070,7 +1250,6 @@ export default function OrderListPage({
               <Button
                 className="bg-orange-600 hover:bg-orange-700 text-white font-semibold px-8 order-1 sm:order-2 shadow-lg"
                 onClick={async () => {
-                  // Validate bắt buộc
                   if (!disputeReason.trim()) {
                     return toast.error("Vui lòng chọn lý do Khiếu nại");
                   }
@@ -1092,10 +1271,9 @@ export default function OrderListPage({
 
                     if (res.code === 201 || res.code === 200) {
                       toast.success(
-                        "Đã gửi Khiếu nạithành công! Moderator sẽ xử lý trong vòng 24h."
+                        "Đã gửi Khiếu nại thành công! Moderator sẽ xử lý trong vòng 24h."
                       );
 
-                      // Cập nhật trạng thái đơn hàng ngay lập tức trên UI
                       setOrders((prev) =>
                         prev.map((o) =>
                           o._id === disputeTarget!._id
@@ -1142,6 +1320,32 @@ export default function OrderListPage({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Extension Modal */}
+        <ExtensionModal
+          isOpen={openExtensionModal}
+          onClose={() => {
+            setOpenExtensionModal(false);
+            setSelectedExtensionOrder(null);
+          }}
+          order={selectedExtensionOrder}
+          onSuccess={handleExtensionSuccess}
+        />
+
+        {/* New Extension Requests Modal */}
+        <ExtensionRequestsModal
+          isOpen={openExtensionRequestsModal}
+          onClose={() => {
+            setOpenExtensionRequestsModal(false);
+            setSelectedExtensionOrderForDetails(null);
+          }}
+          orderId={selectedExtensionOrderForDetails?._id || ""}
+          orderTitle={
+            selectedExtensionOrderForDetails?.itemSnapshot?.title ||
+            selectedExtensionOrderForDetails?.itemId?.Title ||
+            "Sản phẩm"
+          }
+        />
       </div>
     </div>
   );

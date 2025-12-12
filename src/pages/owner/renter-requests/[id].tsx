@@ -15,19 +15,21 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
+  ChevronRight,
   Download,
   Share2,
+  Home,
+  ShoppingBag,
   Eye,
   User,
   Mail,
   Store,
-  ArrowLeft,
 } from "lucide-react";
 import type { Order } from "@/services/auth/order.api";
 import Image from "next/image";
 import Link from "next/link";
-import { payOrderWithWallet, getMyWallet } from "@/services/wallet/wallet.api"; // Đảm bảo import đúng
-import { toast } from "sonner";
+import OwnerLayout from "../layout";
+import Button from "@/components/ui/common/button";
 
 interface TimelineStep {
   status: string;
@@ -49,33 +51,12 @@ const getUnitName = (priceUnit: string | undefined): string => {
   return map[priceUnit] || "đơn vị";
 };
 
-// Helper function to extract error message from unknown error
-const getErrorMessage = (error: unknown): string => {
-  if (
-    error &&
-    typeof error === "object" &&
-    "response" in error &&
-    error.response &&
-    typeof error.response === "object" &&
-    "data" in error.response &&
-    error.response.data &&
-    typeof error.response.data === "object" &&
-    "message" in error.response.data &&
-    typeof error.response.data.message === "string"
-  ) {
-    return error.response.data.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Đã xảy ra lỗi";
-};
-
+// Helper functions to convert status to Vietnamese
 const getOrderStatusLabel = (status: string): string => {
   const statusMap: Record<string, string> = {
     pending: "Chờ xác nhận",
     confirmed: "Đã xác nhận",
-    delivery: "Đã giao hàng",
+    delivery: "Đang giao",
     received: "Đã nhận hàng",
     progress: "Đang thuê",
     returned: "Đã trả hàng",
@@ -97,153 +78,40 @@ const getPaymentStatusLabel = (status: string): string => {
   return statusMap[status.toLowerCase()] || status;
 };
 
-export default function OrderDetail({ id: propId }: { id?: string }) {
+export default function OwnerOrderDetail() {
+  return (
+    <OwnerLayout>
+      <OwnerOrderDetailContent />
+    </OwnerLayout>
+  );
+}
+
+function OwnerOrderDetailContent() {
   const router = useRouter();
-  const { id: routeId, orderId: queryOrderId } = router.query as {
-    id?: string;
-    orderId?: string;
-  };
-  const id = propId || queryOrderId || routeId;
+  const { id } = router.query;
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
-  const [pendingAction] = useState<() => Promise<void>>(() => async () => {});
-  const [isPaying, setIsPaying] = useState(false); //Thanh toan
-  const [walletBalance, setWalletBalance] = useState<number>(0);
-  const [loadingBalance, setLoadingBalance] = useState(true);
-  // Thêm vào phần state
-  const [confirmPayModal, setConfirmPayModal] = useState<{
-    isOpen: boolean;
-    requiredAmount: number;
-  }>({
-    isOpen: false,
-    requiredAmount: 0,
-  });
-
-  const [insufficientModal, setInsufficientModal] = useState<{
-    isOpen: boolean;
-    requiredAmount: number;
-    shortage: number;
-  }>({
-    isOpen: false,
-    requiredAmount: 0,
-    shortage: 0,
-  });
   useEffect(() => {
-    async function fetchOrder() {
-      if (id) {
-        await loadOrder();
-      }
+    if (id) {
+      loadOrder();
     }
-    fetchOrder();
   }, [id]);
-
-  // Load ví
-  useEffect(() => {
-    const loadWallet = async () => {
-      try {
-        const res = await getMyWallet();
-        setWalletBalance(res.balance ?? 0);
-      } catch (err) {
-        console.error("Lỗi load ví:", err);
-        setWalletBalance(0);
-      } finally {
-        setLoadingBalance(false);
-      }
-    };
-    loadWallet();
-  }, []);
-
-  // Hàm thanh toán ví - giờ đã an toàn 100%
-  const handlePayWithWallet = async () => {
-    if (isPaying || loadingBalance || !order) return;
-
-    const requiredAmount =
-      (order.finalAmount ?? 0) +
-      (order.depositAmount ?? 0) +
-      (order.serviceFee ?? 0);
-    const shortage = requiredAmount - walletBalance;
-
-    // Thiếu tiền → hiện modal đẹp
-    if (walletBalance < requiredAmount) {
-      setInsufficientModal({
-        isOpen: true,
-        requiredAmount,
-        shortage,
-      });
-      return;
-    }
-
-    // Đủ tiền → hiện modal xác nhận
-    setConfirmPayModal({
-      isOpen: true,
-      requiredAmount,
-    });
-  };
-
-  // Hàm thực hiện thanh toán (gọi khi người dùng bấm "Xác nhận" trong modal)
-  const executeWalletPayment = async () => {
-    if (isPaying || !order) return;
-
-    setIsPaying(true);
-    setConfirmPayModal((prev) => ({ ...prev, isOpen: false }));
-
-    try {
-      await payOrderWithWallet(order._id);
-      toast.success("Thanh toán thành công bằng ví!");
-      await loadOrder();
-
-      const updated = await getMyWallet();
-      setWalletBalance(updated.balance ?? 0);
-    } catch (error: unknown) {
-      const msg = getErrorMessage(error) || "Thanh toán thất bại";
-      toast.error(msg);
-
-      if (
-        msg.toLowerCase().includes("không đủ") ||
-        msg.toLowerCase().includes("insufficient")
-      ) {
-        const required =
-          (order.finalAmount ?? 0) +
-          (order.depositAmount ?? 0) +
-          (order.serviceFee ?? 0);
-        setInsufficientModal({
-          isOpen: true,
-          requiredAmount: required,
-          shortage: required - walletBalance,
-        });
-      }
-    } finally {
-      setIsPaying(false);
-    }
-  };
 
   const loadOrder = async () => {
     setLoading(true);
     try {
       const res = await getOrderDetails(id as string);
+      
       if (res.data) {
+        console.log("Order data:", res.data);
+        console.log("Renter data:", res.data.renterId);
         setOrder(res.data);
       }
     } catch (error) {
       console.error("Lỗi tải đơn hàng:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const executeAction = async () => {
-    setActionLoading(true);
-    try {
-      await pendingAction();
-      await loadOrder();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error) || "Thao tác thất bại");
-    } finally {
-      setShowConfirm(false);
-      setActionLoading(false);
     }
   };
 
@@ -257,8 +125,6 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
       </div>
     );
   }
-  console.log("Dispute RAW:", order.disputeId);
-  console.log("Type:", typeof order.disputeId);
 
   const timelineSteps: TimelineStep[] = [
     {
@@ -278,15 +144,19 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
     {
       status: "delivery",
       label: "Đang giao",
-      active: ["confirmed", "progress", "completed"].includes(
-        order.orderStatus
-      ),
+      active: [
+        "delivery",
+        "received",
+        "progress",
+        "returned",
+        "completed",
+      ].includes(order.orderStatus),
       current: order.orderStatus === "delivery",
     },
     {
       status: "received",
       label: "Đã nhận hàng",
-      active: ["confirmed", "progress", "completed"].includes(
+      active: ["received", "progress", "returned", "completed"].includes(
         order.orderStatus
       ),
       current: order.orderStatus === "received",
@@ -324,30 +194,56 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
     },
   ];
 
+  // Breadcrumb data
+  const breadcrumbs = [
+    { label: "Trang chủ", href: "/home", icon: Home },
+    { label: "Quản lý", href: "/owner", icon: ShoppingBag },
+    { label: "Đơn hàng", href: "/owner/renter-requests", icon: ShoppingBag },
+    {
+      label: "Chi tiết đơn hàng",
+      href: `/owner/renter-requests/${order._id}`,
+      icon: Eye,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <div className="mb-4">
-          <button
-            onClick={() => {
-              const { pathname, query } = router;
-              const q = query as Record<string, string | string[]>;
-              if (Object.prototype.hasOwnProperty.call(q, "orderId")) {
-                const newQuery: Record<string, string | string[]> = { ...q };
-                delete (newQuery as Record<string, unknown>).orderId;
-                router.replace({ pathname, query: newQuery }, undefined, {
-                  shallow: true,
-                });
-              } else {
-                router.back();
-              }
-            }}
-            className="inline-flex items-center gap-2 text-sm text-gray-700 hover:text-emerald-700 hover:underline"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Quay lại
-          </button>
-        </div>
+        {/* Breadcrumb Navigation */}
+        <nav className="mb-6">
+          <div className="flex items-center space-x-2 text-sm">
+            {breadcrumbs.map((breadcrumb, index) => {
+              const IconComponent = breadcrumb.icon;
+              const isLast = index === breadcrumbs.length - 1;
+
+              return (
+                <div
+                  key={breadcrumb.href}
+                  className="flex items-center space-x-2"
+                >
+                  {index > 0 && (
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                  )}
+
+                  {isLast ? (
+                    <span className="flex items-center space-x-1 text-gray-900 font-medium">
+                      {IconComponent && <IconComponent className="w-4 h-4" />}
+                      <span>{breadcrumb.label}</span>
+                    </span>
+                  ) : (
+                    <Link
+                      href={breadcrumb.href}
+                      className="flex items-center space-x-1 text-gray-600 hover:text-blue-600 transition-colors"
+                    >
+                      {IconComponent && <IconComponent className="w-4 h-4" />}
+                      <span>{breadcrumb.label}</span>
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
 
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
@@ -387,16 +283,14 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
               <Link href={`/products/details?id=${order.itemId}`}>
                 <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
                   <Package className="w-6 h-6 text-blue-600" />
-                  Sản phẩm thuê Demo
+                  Sản phẩm thuê
                 </h2>
                 <div className="flex gap-6 items-start">
                   <div className="w-40 h-40 bg-gray-200 border-2 border-dashed rounded-xl overflow-hidden flex-shrink-0">
                     {order.itemSnapshot.images[0] ? (
-                      <Image
-                        src={order.itemSnapshot.images[0] || ""}
-                        alt={order.itemSnapshot.title || "Ảnh sản phẩm"}
-                        width={160}
-                        height={160}
+                      <img
+                        src={order.itemSnapshot.images[0]}
+                        alt={order.itemSnapshot.title}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -475,7 +369,7 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
                       </h3>
                       <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-100 px-3 py-1 rounded-full w-fit">
                         <User className="w-3 h-3" />
-                        <span>Người thuê</span>
+                        <span>Người mua</span>
                       </div>
                     </div>
                   </div>
@@ -501,6 +395,14 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
                           {order.renterId.email}
                         </p>
                       </div>
+                    </div>
+                    <div className="text-center">
+                      <Link href={`/auth/rating?userId=${order.renterId._id}`}>
+                        <Button className="text-blue-500 bg-white border border-transparent hover:border-blue-500">
+                          <Eye className="p-1" />
+                          Thông tin
+                        </Button>
+                      </Link>
                     </div>
                   </div>
                 </div>
@@ -556,18 +458,6 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
                         </p>
                       </div>
                     </div>
-                  </div>
-                  <div className="pt-4 mt-4 border-t border-emerald-200">
-                    <Link
-                      href={`/store/${
-                        order.ownerId.userGuid || order.ownerId._id
-                      }`}
-                    >
-                      <button className="w-full px-4 py-2 text-sm font-medium text-emerald-600 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2">
-                        <Store className="w-4 h-4" />
-                        Xem cửa hàng
-                      </button>
-                    </Link>
                   </div>
                 </div>
               </div>
@@ -796,229 +686,136 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
               </h2>
               <div className="space-y-3 text-sm">
                 {/* Hiển thị giá từ backend - không tính toán lại */}
-                {(() => {
-                  // Lấy tất cả giá trị từ backend (đã được tính sẵn)
-                  // Tiền thuê (rentalTotal) - totalAmount trong order là tiền thuê
-                  
-                  const rentalTotal = order.itemSnapshot.basePrice || 0;
-                  // Tiền cọc (depositTotal)
-                  const depositTotal = order.depositAmount || 0;
+                {/* 1. Tiền thuê */}
+                <div className="flex justify-between items-center py-2 border-b border-white/20">
+                  <span className="text-emerald-50">Tiền thuê</span>
+                  <span className="font-semibold text-white">
+                    {(
+                      (order?.totalAmount ?? 0) - (order?.depositAmount ?? 0) - (order?.serviceFee ?? 0)
+                    ).toLocaleString("vi-VN")}{" "}
+                    {order?.currency || "₫"}
+                  </span>
+                </div>
 
-                  // Phí dịch vụ (serviceFeeAmount) - đã được tính sẵn trong backend
-                  const serviceFeeAmount = order.serviceFee || 0;
-                   const retalamout =
-                     order.totalAmount - depositTotal - serviceFeeAmount || 0;
+                {/* 2. Phí dịch vụ */}
+                <div className="flex justify-between text-cyan-200">
+                  <span>Phí dịch vụ</span>
+                  <span>
+                    {(order.serviceFee || 0).toLocaleString("vi-VN")}{" "}
+                    {order.currency || "₫"}
+                  </span>
+                </div>
 
-                  // Lấy discount info từ order
-                  const discount = order.discount;
-                  const publicDiscountAmount = discount?.amountApplied || 0;
-                  const privateDiscountAmount =
-                    discount?.secondaryAmountApplied || 0;
-                  const totalDiscountAmount =
-                    discount?.totalAmountApplied ||
-                    publicDiscountAmount + privateDiscountAmount;
+                {/* 3. Tiền cọc */}
+                <div className="flex justify-between items-center py-2 border-b border-white/20">
+                  <span className="text-amber-200">Tiền cọc</span>
+                  <span className="font-semibold text-amber-100">
+                    {(order.depositAmount || 0).toLocaleString("vi-VN")}{" "}
+                    {order.currency || "₫"}
+                  </span>
+                </div>
 
-                  // Tổng tiền = tiền tong thuê - discount
-                  // finalAmount từ backend là tiền thuê sau discount, nên tổng = finalAmount + deposit + serviceFee
-                  const grandTotal = order.finalAmount
-                    ? order.finalAmount
-                    : Math.max(0, rentalTotal - totalDiscountAmount);
+                {/* 4. Giảm giá (nếu có) */}
+                {order.discount &&
+                  ((order.discount.amountApplied ?? 0) > 0 ||
+                    (order.discount.secondaryAmountApplied ?? 0) > 0 ||
+                    (order.discount.totalAmountApplied ?? 0) > 0) && (
+                    <div className="flex justify-between text-green-200 border-t border-emerald-400 pt-3">
+                      <span>Giảm giá</span>
+                      <span className="font-medium">
+                        -
+                        {(
+                          order.discount.totalAmountApplied ||
+                          order.discount.amountApplied ||
+                          0
+                        ).toLocaleString("vi-VN")}{" "}
+                        {order.currency || "₫"}
+                      </span>
+                    </div>
+                  )}
 
-                  return (
-                    <>
-                      {/* 1. Tiền thuê */}
-                      <div className="flex justify-between items-center py-2 border-b border-white/20">
-                        <span className="text-emerald-50">Tiền thuê</span>
-                        <span className="font-semibold text-white">
-                          {retalamout.toLocaleString("vi-VN")}₫
-                        </span>
-                      </div>
-
-                      {/* 2. Phí dịch vụ */}
-                      <div className="flex justify-between items-center py-2 border-b border-white/20">
-                        <span className="text-yellow-200">Phí dịch vụ</span>
-                        <span className="font-semibold text-yellow-100">
-                          {serviceFeeAmount.toLocaleString("vi-VN")}₫
-                        </span>
-                      </div>
-
-                      {/* 3. Tiền cọc */}
-                      <div className="flex justify-between items-center py-2 border-b border-white/20">
-                        <span className="text-amber-200">Tiền cọc</span>
-                        <span className="font-semibold text-amber-100">
-                          {depositTotal.toLocaleString("vi-VN")}₫
-                        </span>
-                      </div>
-
-                      {/* 4. Giảm giá (nếu có) */}
-                      {totalDiscountAmount > 0 && (
-                        <div className="space-y-1">
-                          {publicDiscountAmount > 0 && discount?.code && (
-                            <div className="flex justify-between items-center py-1 border-b border-white/10">
-                              <span className="text-emerald-50 text-sm">
-                                Giảm giá công khai ({discount.code})
-                              </span>
-                              <span className="font-semibold text-emerald-100 text-sm">
-                                -{publicDiscountAmount.toLocaleString("vi-VN")}₫
-                              </span>
-                            </div>
-                          )}
-                          {privateDiscountAmount > 0 &&
-                            discount?.secondaryCode && (
-                              <div className="flex justify-between items-center py-1 border-b border-white/10">
-                                <span className="text-emerald-50 text-sm">
-                                  Giảm giá riêng tư ({discount.secondaryCode})
-                                </span>
-                                <span className="font-semibold text-emerald-100 text-sm">
-                                  -
-                                  {privateDiscountAmount.toLocaleString(
-                                    "vi-VN"
-                                  )}
-                                  ₫
-                                </span>
-                              </div>
+                {/* 5. Tổng thanh toán */}
+                <div className="border-t border-emerald-400 pt-3">
+                  <div className="flex justify-between text-lg font-bold">
+                    <span>Tổng tiền</span>
+                    <span className="text-2xl">
+                      {/* Tổng = finalAmount (tiền thuê sau discount) + deposit + serviceFee */}
+                      {order.finalAmount !== undefined
+                        ? order.finalAmount.toLocaleString("vi-VN")
+                        : (order.totalAmount || 0).toLocaleString("vi-VN")}{" "}
+                      {order.currency || "₫"}
+                    </span>
+                  </div>
+                  {/* Chi tiết mã giảm giá */}
+                  {order.discount &&
+                    (order.discount.code || order.discount.secondaryCode) && (
+                      <div className="mt-2 text-xs text-emerald-200/80">
+                        {order.discount.code && (
+                          <div>
+                            Mã công khai: {order.discount.code}{" "}
+                            {order.discount.type === "percent"
+                              ? `(${order.discount.value}%)`
+                              : `(${(order.discount.value ?? 0).toLocaleString(
+                                  "vi-VN"
+                                )}₫)`}{" "}
+                            -{" "}
+                            {(order.discount.amountApplied || 0).toLocaleString(
+                              "vi-VN"
                             )}
-                          <div className="flex justify-between items-center py-2 border-b border-white/20">
-                            <span className="text-emerald-50 font-semibold">
-                              Tổng giảm giá
-                            </span>
-                            <span className="font-semibold text-emerald-100">
-                              -{totalDiscountAmount.toLocaleString("vi-VN")}₫
-                            </span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 5. Tổng cộng */}
-                      <div className="border-t border-emerald-400 pt-3">
-                        <div className="flex justify-between text-lg font-bold">
-                          <span>Tổng cộng</span>
-                          <span className="text-2xl">
-                            {grandTotal.toLocaleString("vi-VN")}₫
-                          </span>
-                        </div>
-                        <div className="mt-2 text-xs text-emerald-100 text-center italic">
-                          (Hoàn lại tiền cọc sau khi trả đồ)
-                        </div>
-                      </div>
-
-                      {/* Chi tiết mã giảm giá đã sử dụng */}
-                      {discount &&
-                        (discount.code || discount.secondaryCode) && (
-                          <div className="mt-4 pt-4 border-t border-emerald-400">
-                            <div className="text-xs text-emerald-200/80 space-y-1">
-                              {discount.code && (
-                                <div>
-                                  <span className="font-semibold">
-                                    Mã công khai:
-                                  </span>{" "}
-                                  {discount.code}{" "}
-                                  {discount.type === "percent"
-                                    ? `(${discount.value}%)`
-                                    : `(${(discount.value ?? 0).toLocaleString(
-                                        "vi-VN"
-                                      )}₫)`}{" "}
-                                  -{" "}
-                                  {(discount.amountApplied || 0).toLocaleString(
-                                    "vi-VN"
-                                  )}
-                                  ₫
-                                </div>
-                              )}
-                              {discount.secondaryCode && (
-                                <div>
-                                  <span className="font-semibold">
-                                    Mã riêng tư:
-                                  </span>{" "}
-                                  {discount.secondaryCode}{" "}
-                                  {discount.secondaryType === "percent"
-                                    ? `(${discount.secondaryValue}%)`
-                                    : `(${(
-                                        discount.secondaryValue ?? 0
-                                      ).toLocaleString("vi-VN")}₫)`}{" "}
-                                  -{" "}
-                                  {(
-                                    discount.secondaryAmountApplied || 0
-                                  ).toLocaleString("vi-VN")}
-                                  ₫
-                                </div>
-                              )}
-                            </div>
+                            ₫
                           </div>
                         )}
-                    </>
-                  );
-                })()}
+                        {order.discount.secondaryCode && (
+                          <div>
+                            Mã riêng tư: {order.discount.secondaryCode}{" "}
+                            {order.discount.secondaryType === "percent"
+                              ? `(${order.discount.secondaryValue}%)`
+                              : `(${order.discount.secondaryValue?.toLocaleString(
+                                  "vi-VN"
+                                )}₫)`}{" "}
+                            -{" "}
+                            {(
+                              order.discount.secondaryAmountApplied || 0
+                            ).toLocaleString("vi-VN")}
+                            ₫
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </div>
               </div>
             </div>
 
-            {/* Trạng thái thanh toán + Nút thanh toán nếu chưa thanh toán */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
                 <CreditCard className="w-6 h-6 text-emerald-600" />
                 Trạng thái thanh toán
               </h2>
-
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between">
                 <span className="text-gray-700">Thanh toán</span>
                 <span
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
-                    order.paymentStatus === "paid"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-red-100 text-red-700"
-                  }`}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium
+                    ${
+                      order.paymentStatus === "paid"
+                        ? "bg-green-100 text-green-700"
+                        : order.paymentStatus === "not_paid"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : order.paymentStatus === "refunded"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-gray-100 text-gray-700"
+                    }`}
                 >
-                  {order.paymentStatus === "paid" ? (
+                  {order.paymentStatus === "paid" && (
                     <CheckCircle2 className="w-4 h-4" />
-                  ) : (
+                  )}
+                  {order.paymentStatus === "not_paid" && (
                     <AlertCircle className="w-4 h-4" />
                   )}
                   {getPaymentStatusLabel(order.paymentStatus)}
                 </span>
               </div>
-
-              {/* Chưa thanh toán → hiện nút ví */}
-              {["pending", "not_paid"].includes(order.paymentStatus) && (
-                <div className="space-y-4">
-                  <button
-                    onClick={handlePayWithWallet}
-                    disabled={isPaying || loadingBalance}
-                    className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-5 rounded-2xl shadow-xl transform transition-all duration-200 hover:scale-105 flex items-center justify-center gap-3 text-lg disabled:opacity-60 disabled:hover:scale-100"
-                  >
-                    {isPaying || loadingBalance ? (
-                      <>
-                        <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Đang xử lý...
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard className="w-7 h-7" />
-                        Thanh toán ngay
-                      </>
-                    )}
-                  </button>
-
-                  <p className="text-center text-xs text-red-600 font-medium animate-pulse">
-                    Vui lòng thanh toán để chủ hàng xác nhận giao hàng
-                  </p>
-                </div>
-              )}
-
-              {/* Đã thanh toán */}
-              {order.paymentStatus === "paid" && (
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg text-center">
-                  <p className="text-emerald-700 font-medium flex items-center justify-center gap-2">
-                    <CheckCircle2 className="w-5 h-5" />
-                    Đã thanh toán thành công
-                  </p>
-                  <p className="text-xs text-emerald-600 mt-1">
-                    {order.startAt
-                      ? format(new Date(order.startAt), "dd/MM/yyyy HH:mm")
-                      : "Gần đây"}
-                  </p>
-                </div>
-              )}
             </div>
+
             {/* Hợp đồng - CHỈ HIỆN KHI ĐƠN HÀNG > 2.000.000₫ */}
             {order.totalAmount > 2_000_000 && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -1071,7 +868,6 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
                 )}
               </div>
             )}
-
             {/* Tiện ích */}
             <div className="bg-gray-50 rounded-2xl p-4 space-y-2">
               <button className="w-full flex items-center justify-center gap-2 text-gray-700 hover:text-emerald-600 transition text-sm">
@@ -1084,195 +880,6 @@ export default function OrderDetail({ id: propId }: { id?: string }) {
           </div>
         </div>
       </div>
-
-      {/* Confirm Modal */}
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full">
-            <div className="flex items-center gap-3 mb-4">
-              <AlertCircle className="w-8 h-8 text-yellow-600" />
-              <h3 className="font-bold text-lg">Xác nhận hành động</h3>
-            </div>
-            <p className="text-gray-600 mb-6">
-              Bạn có chắc chắn muốn thực hiện hành động này?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="flex-1 py-2 border border-gray-300 rounded-xl font-medium"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={executeAction}
-                disabled={actionLoading}
-                className="flex-1 bg-emerald-600 text-white py-2 rounded-xl font-medium hover:bg-emerald-700 disabled:opacity-70 flex items-center justify-center gap-2"
-              >
-                {actionLoading ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  "Xác nhận"
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Số dư không đủ – PHIÊN BẢN NHỎ GỌN */}
-      {insufficientModal.isOpen && order && (
-        <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() =>
-              setInsufficientModal((prev) => ({ ...prev, isOpen: false }))
-            }
-          />
-          <div className="relative w-full max-w-sm mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-5 text-center">
-              <AlertCircle className="w-12 h-12 text-red-600 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-gray-900 mb-2">
-                Ví không đủ tiền
-              </h3>
-
-              <div className="bg-red-50 rounded-xl p-4 text-left text-sm space-y-2 mb-4 font-medium">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Cần thanh toán:</span>
-                  <span className="text-red-600 font-bold">
-                    {insufficientModal.requiredAmount.toLocaleString()}₫
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Số dư ví:</span>
-                  <span>{walletBalance.toLocaleString()}₫</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t border-red-200">
-                  <span className="text-gray-700 font-semibold">Thiếu:</span>
-                  <span className="text-red-600 font-bold">
-                    {insufficientModal.shortage.toLocaleString()}₫
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 text-sm">
-                <button
-                  onClick={() =>
-                    setInsufficientModal((prev) => ({ ...prev, isOpen: false }))
-                  }
-                  className="flex-1 py-2.5 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
-                >
-                  Để sau
-                </button>
-                <button
-                  onClick={() => {
-                    setInsufficientModal((prev) => ({
-                      ...prev,
-                      isOpen: false,
-                    }));
-                    router.push("/wallet");
-                  }}
-                  className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700"
-                >
-                  Nạp tiền
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Xác nhận thanh toán – PHIÊN BẢN NHỎ GỌN, CHỮ NHỎ, SIÊU ĐẸP */}
-      {confirmPayModal.isOpen && order && (
-        <div className="fixed inset-0 z-1000 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() =>
-              setConfirmPayModal((prev) => ({ ...prev, isOpen: false }))
-            }
-          />
-
-          <div className="relative w-full max-w-sm mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="p-5 text-center">
-              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <CreditCard className="w-7 h-7 text-emerald-600" />
-              </div>
-
-              <h3 className="text-lg font-bold text-gray-900 mb-1">
-                Xác nhận thanh toán
-              </h3>
-              <p className="text-xs text-gray-500 mb-4">
-                Đơn hàng #{order.orderGuid.slice(0, 8).toUpperCase()}
-              </p>
-
-              <div className="bg-emerald-50 rounded-xl p-4 text-left text-sm space-y-2 mb-4 font-medium border border-emerald-200">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tiền thuê</span>
-                  <span className="font-semibold">
-                    {(order.itemSnapshot.basePrice ?? 0).toLocaleString()}₫
-                  </span>
-                </div>
-                {(order.serviceFee ?? 0) > 0 && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-500">Phí dịch vụ</span>
-                    <span>{(order.serviceFee ?? 0).toLocaleString()}₫</span>
-                  </div>
-                )}
-                {(order.depositAmount ?? 0) > 0 && (
-                  <div className="flex justify-between text-amber-700 text-xs font-medium">
-                    <span>Tiền cọc</span>
-                    <span>{(order.depositAmount ?? 0).toLocaleString()}₫</span>
-                  </div>
-                )}
-                {(order.discount?.totalAmountApplied ?? 0) > 0 && (
-                  <div className="flex justify-between text-green-600 text-xs font-bold">
-                    <span>Giảm giá</span>
-                    <span>
-                      -
-                      {(
-                        order.discount?.totalAmountApplied ?? 0
-                      ).toLocaleString()}
-                      ₫
-                    </span>
-                  </div>
-                )}
-                <div className="pt-2 border-t border-emerald-300 flex justify-between font-bold text-base">
-                  <span>Tổng cộng</span>
-                  <span className="text-emerald-600">
-                    {(order.finalAmount ?? 0).toLocaleString()}₫
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl px-4 py-3 text-xs font-medium mb-4">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Số dư hiện tại</span>
-                  <span className="text-emerald-600 font-bold">
-                    {walletBalance.toLocaleString()}₫
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 text-sm">
-                <button
-                  onClick={() =>
-                    setConfirmPayModal((prev) => ({ ...prev, isOpen: false }))
-                  }
-                  className="flex-1 py-2.5 border border-gray-300 rounded-xl font-medium hover:bg-gray-50"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={executeWalletPayment}
-                  disabled={isPaying}
-                  className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 disabled:opacity-70 flex items-center justify-center gap-2"
-                >
-                  {isPaying ? <>Đang xử lý...</> : "Thanh toán"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

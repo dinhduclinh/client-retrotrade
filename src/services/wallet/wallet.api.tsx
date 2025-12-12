@@ -131,15 +131,59 @@ export const deleteBankAccount = async (id: string) => {
 // API thanh toán đơn hàng sử dụng ví của người dùng
 export const payOrderWithWallet = async (orderId: string, userId?: string) => {
   try {
-    const payload = {
-      orderId,
-      userId,
-    };
+    const payload = {orderId,userId};
     const res = await instance.post("/wallet/order/payment", payload);
     return await parseFetchResponse(res);
   } catch (error) {
     console.error("[wallet.api] payOrderWithWallet error:", error);
     throw error;
+  }
+};
+
+export interface PayExtensionFeeResponse {
+  success: boolean;
+  message: string;
+  data: {
+    newEndAt: string;
+    additionalAmount: number;
+    newBalance: number;
+  };
+}
+
+export interface PayExtensionFeeErrorResponse {
+  error?: string;
+  message?: string;
+  balance?: number;
+  required?: number;
+  shortage?: number;
+}
+// thanh toán gia hạn
+export const payExtensionFee = async (
+  requestId: string
+): Promise<PayExtensionFeeResponse> => {
+  try {
+    const response = await instance.post("/wallet/order/extension/pay", {
+      requestId,
+    });
+    return (await parseFetchResponse(response)) as PayExtensionFeeResponse;
+  } catch (error: unknown) {
+    console.error("[wallet.api] payExtensionFee error:", error);
+    const err = error as {
+      response?: { data?: PayExtensionFeeErrorResponse; status?: number };
+    };
+
+    const errorData = err.response?.data || {};
+    const errorMessage =
+      errorData.error || errorData.message || "Thanh toán phí gia hạn thất bại";
+
+    const formattedError: PayExtensionFeeErrorResponse & { message: string } = {
+      message: errorMessage,
+      balance: errorData.balance,
+      required: errorData.required,
+      shortage: errorData.shortage,
+    };
+
+    throw formattedError;
   }
 };
 
