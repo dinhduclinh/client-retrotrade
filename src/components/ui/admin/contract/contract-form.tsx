@@ -145,10 +145,7 @@ export function ContractTemplateForm({
   };
   const combinedContent = `${formData.headerContent}\n\n${formData.bodyContent}\n\n${formData.footerContent}`;
 
-  const footerPlaceholder = `                                                                                                    
-ĐẠI DIỆN BÊN CHO THUÊ (BÊN A)                                                                 ĐẠI DIỆN BÊN THUÊ (BÊN B)
-Họ và tên: {ownerName}                                                                                      Họ và tên: {renterName}   `;
-
+  const footerPlaceholder = ``;
   const handlePreviewClick = () => {
     if (
       !formData.headerContent.trim() ||
