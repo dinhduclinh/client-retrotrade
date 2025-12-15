@@ -131,7 +131,7 @@ const parseResponse = async <T,>(
     message = `HTTP ${response.status}: ${response.statusText}`;
   }
 
-  // Xác định data
+  // Xác định data 
   let data: T | undefined = undefined;
 
   if (raw && typeof raw === "object" && raw !== null) {

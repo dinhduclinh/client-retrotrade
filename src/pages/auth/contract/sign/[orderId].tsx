@@ -140,7 +140,7 @@ export default function SignContractPage() {
   const [draggingSigId, setDraggingSigId] = useState<string | null>(null);
   const [savingNewSignature, setSavingNewSignature] = useState<boolean>(false);
   const contractRef = useRef<HTMLDivElement>(null);
-  const proseRef = useRef<HTMLDivElement | null>(null);
+const proseRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef<string | null>(null);
 
   const unifiedStyle = {
@@ -221,7 +221,7 @@ export default function SignContractPage() {
         const availableTpls: ContractTemplate[] = Array.isArray(
           contractRes.availableTemplates
         )
-          ? (contractRes.availableTemplates as ContractTemplate[])
+          ? contractRes.availableTemplates as ContractTemplate[]
           : [];
         setTemplates(availableTpls);
         if (availableTpls.length === 0) {
