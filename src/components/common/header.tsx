@@ -154,7 +154,7 @@ export function Header() {
             onClick={handleGoToAdminPanel}
           >
             <Crown className="mr-2 h-4 w-4 group-hover:text-yellow-500 transition-colors" />
-            <span>Bảng điều khiển Admin</span>
+            <span>Trang Quản Trị</span>
           </DropdownMenuItem>
         );
         break;
@@ -166,7 +166,7 @@ export function Header() {
             onClick={handleGoToModeratorPanel}
           >
             <Shield className="mr-2 h-4 w-4 group-hover:text-blue-500 transition-colors" />
-            <span>Bảng điều khiển Moderator</span>
+            <span>Trang điều hành</span>
           </DropdownMenuItem>
         );
         break;
