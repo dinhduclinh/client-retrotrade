@@ -110,7 +110,6 @@ export default function EventManagementPage() {
     "basic"
   );
 
-  // Modal xác nhận xóa
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
     isOpen: boolean;
     eventId: string | null;
@@ -176,13 +175,12 @@ export default function EventManagementPage() {
           decorations: event.theme.decorations ?? false,
           countdownEnabled: event.theme.countdownEnabled ?? false,
           countdownTargetDate: event.theme.countdownTargetDate
-            ? (() => {
-                const date = new Date(event.theme.countdownTargetDate);
-                const localDate = new Date(
-                  date.getTime() - date.getTimezoneOffset() * 60000
-                );
-                return localDate.toISOString().slice(0, 16);
-              })()
+            ? new Date(
+                new Date(event.theme.countdownTargetDate).getTime() +
+                  7 * 60 * 60 * 1000
+              )
+                .toISOString()
+                .slice(0, 16)
             : "",
           countdownType: event.theme.countdownType ?? "default",
           decorationEmojis: event.theme.decorationEmojis ?? [],
@@ -238,9 +236,50 @@ export default function EventManagementPage() {
   }, [formData.name, editingEvent]);
 
   const handleSubmit = async () => {
-    const finalData = {
-      ...formData,
-      slug: formData.slug || generateSlug(formData.name || ""),
+    if (!formData.name || !formData.startDate || !formData.endDate) {
+      toast.error("Vui lòng điền đầy đủ tên, ngày bắt đầu và kết thúc");
+      return;
+    }
+
+    const slug = formData.slug || generateSlug(formData.name);
+
+    let countdownTargetDate: string | undefined = undefined;
+    if (
+      formData.theme?.countdownEnabled &&
+      formData.theme?.countdownTargetDate
+    ) {
+      countdownTargetDate = new Date(
+        new Date(formData.theme.countdownTargetDate).getTime() -
+          7 * 60 * 60 * 1000
+      ).toISOString();
+    }
+
+    const dataToSend: Omit<
+      Event,
+      "_id" | "createdAt" | "updatedAt" | "createdBy"
+    > = {
+      name: formData.name,
+      slug,
+      startDate: new Date(formData.startDate).toISOString(),
+      endDate: new Date(formData.endDate).toISOString(),
+      isActive: formData.isActive ?? true,
+      theme: {
+        snowfall: formData.theme?.snowfall ?? false,
+        decorations: formData.theme?.decorations ?? false,
+        countdownEnabled: formData.theme?.countdownEnabled ?? false,
+        countdownTargetDate,
+        countdownType: formData.theme?.countdownType ?? "default",
+        decorationEmojis: formData.theme?.decorationEmojis ?? [],
+        cardTitle: formData.theme?.cardTitle ?? "",
+        cardMessage: formData.theme?.cardMessage ?? "",
+        badgeText: formData.theme?.badgeText ?? "",
+        buttonText1: formData.theme?.buttonText1 ?? "Khám Phá Sản Phẩm",
+        buttonLink1: formData.theme?.buttonLink1 ?? "/products",
+        buttonText2: formData.theme?.buttonText2 ?? "",
+        buttonLink2: formData.theme?.buttonLink2 ?? "",
+        displayType: formData.theme?.displayType ?? "christmas-tree",
+        featureImageUrl: formData.theme?.featureImageUrl ?? "",
+      },
     };
 
     const toastId = toast.loading(
@@ -249,15 +288,10 @@ export default function EventManagementPage() {
 
     try {
       if (editingEvent) {
-        await updateEvent(editingEvent._id, finalData);
+        await updateEvent(editingEvent._id, dataToSend);
         toast.success("Cập nhật thành công! 🎉", { id: toastId });
       } else {
-        await createEvent(
-          finalData as Omit<
-            Event,
-            "_id" | "createdAt" | "updatedAt" | "createdBy"
-          >
-        );
+        await createEvent(dataToSend);
         toast.success("Tạo sự kiện thành công! ✨", { id: toastId });
       }
       setIsModalOpen(false);
@@ -928,7 +962,6 @@ export default function EventManagementPage() {
         )}
       </AnimatePresence>
 
-      {/* Modal xác nhận xóa */}
       <AnimatePresence>
         {deleteConfirmModal.isOpen && (
           <motion.div
