@@ -1069,6 +1069,14 @@ const proseRef = useRef<HTMLDivElement | null>(null);
                   >
                     điều khoản của hệ thống
                   </a>
+                  và{" "}
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    className="text-blue-600 hover:underline font-medium"
+                  >
+                    các chính sách liên quan
+                  </a>
                   .
                 </span>
               </label>
