@@ -175,11 +175,8 @@ export default function EventManagementPage() {
           decorations: event.theme.decorations ?? false,
           countdownEnabled: event.theme.countdownEnabled ?? false,
           countdownTargetDate: event.theme.countdownTargetDate
-            ? new Date(
-                new Date(event.theme.countdownTargetDate).getTime() +
-                  7 * 60 * 60 * 1000
-              )
-                .toISOString()
+            ? new Date(event.theme.countdownTargetDate)
+                .toLocaleString("sv", { timeZone: "Asia/Ho_Chi_Minh" })
                 .slice(0, 16)
             : "",
           countdownType: event.theme.countdownType ?? "default",
@@ -248,10 +245,8 @@ export default function EventManagementPage() {
       formData.theme?.countdownEnabled &&
       formData.theme?.countdownTargetDate
     ) {
-      countdownTargetDate = new Date(
-        new Date(formData.theme.countdownTargetDate).getTime() -
-          7 * 60 * 60 * 1000
-      ).toISOString();
+      const localDateStr = `${formData.theme.countdownTargetDate}:00`;
+      countdownTargetDate = new Date(localDateStr + "+07:00").toISOString();
     }
 
     const dataToSend: Omit<
