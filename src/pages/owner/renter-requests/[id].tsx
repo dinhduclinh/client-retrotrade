@@ -102,7 +102,7 @@ function OwnerOrderDetailContent() {
     setLoading(true);
     try {
       const res = await getOrderDetails(id as string);
-
+      
       if (res.data) {
         console.log("Order data:", res.data);
         console.log("Renter data:", res.data.renterId);

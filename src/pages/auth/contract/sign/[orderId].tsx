@@ -1067,7 +1067,7 @@ const proseRef = useRef<HTMLDivElement | null>(null);
                     target="_blank"
                     className="text-blue-600 hover:underline font-medium"
                   >
-                    điều khoản của hệ thống
+                    điều khoản của hệ thống{" "}
                   </a>
                   và{" "}
                   <a
